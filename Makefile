@@ -44,6 +44,15 @@ clean:
 # ========================
 rebuild: clean build
 
+fyne-reload:
+	sudo apt remove golang-go
+	sudo apt autoremove
+	sudo apt update
+	sudo apt install golang-go
+	source ~/.bashrc
+	echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+	go install fyne.io/fyne/v2/cmd/fyne@latest
+
 # ========================
 # ПРОВЕРКА
 # ========================
