@@ -158,7 +158,7 @@ func ptr(s string) *string {
 }
 
 //////////////////////
-// БЭКАП ТЕСТ
+// РУЧНОЙ БЭКАП
 //////////////////////
 
 func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
@@ -194,12 +194,74 @@ func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
 	return err
 }
 
+func (s *AppService) RunFolderBackup(sourceDir, targetDir string) error {
+	started := time.Now()
+
+	size, err := s.BackupSvc.BackupFolder(sourceDir, targetDir)
+
+	status := "OK"
+	var errMsg *string
+
+	if err != nil {
+		status = "ERROR"
+		msg := err.Error()
+		errMsg = &msg
+	}
+
+	_, dbErr := s.DB.Exec(`
+		INSERT INTO backups (
+			task_id,
+			status,
+			size_bytes,
+			error_message,
+			started_at,
+			finished_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`,
+		nil, // ручной запуск
+		status,
+		size,
+		errMsg,
+		started,
+		time.Now(),
+	)
+
+	if dbErr != nil {
+		return dbErr
+	}
+
+	return err
+}
+
 //////////////////////
-// РЕСТОР ТЕСТ
+// РУЧНОЙ РЕСТОР
 //////////////////////
 
-func (s *AppService) RestoreBackup(backupPath, targetDir string) error {
-	return s.RestoreSvc.RestoreFile(backupPath, targetDir)
+func (s *AppService) RunFileRestore(
+	backupPath string,
+	targetDir string,
+	overwrite bool,
+) error {
+	return s.RestoreSvc.RestoreFile(
+		backupPath,
+		targetDir,
+		overwrite,
+	)
+}
+
+func (s *AppService) RunFolderRestore(
+	backupDir string,
+	targetDir string,
+	overwrite bool,
+) error {
+
+	mode := RestoreToNewFolder
+	if overwrite {
+		mode = RestoreOverwrite
+	}
+
+	return s.RestoreSvc.RestoreFolder(backupDir, targetDir, mode)
 }
 
 //////////////////////

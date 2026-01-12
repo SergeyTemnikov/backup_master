@@ -9,35 +9,115 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-var fileButton *widget.Button
-var selectedFile *widget.Label
-var fileURI fyne.URI
-
-var folderButton *widget.Button
-var selectedFolder *widget.Label
-var folderPath string
+var (
+	backupMode   = "file" // file | folder
+	fileURI      fyne.URI
+	sourceFolder string
+	targetFolder string
+)
 
 func NewBackup(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
-	fileLabel := widget.NewLabel("Выберите файл для копирования: ")
-	fileButton = widget.NewButton("Выбрать файл", func() { showFilePicker(w) })
-	selectedFile = widget.NewLabel("Файл не выбран")
+	// ===== ВЫБОР ФАЙЛА =====
+	fileLabel := widget.NewLabel("Файл для копирования:")
+	fileButton := widget.NewButton("Выбрать файл", func() {
+		dialog.ShowFileOpen(func(f fyne.URIReadCloser, err error) {
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if f == nil {
+				return
+			}
+			fileURI = f.URI()
+			fileLabel.SetText("Файл: " + fileURI.Path())
+		}, w)
+	})
 
-	fileCont := container.NewVBox(fileLabel, fileButton, selectedFile)
+	fileBlock := container.NewVBox(fileLabel, fileButton)
 
-	folderLabel := widget.NewLabel("Выберите папку под копию: ")
-	folderButton = widget.NewButton("Выбрать папку", func() { showFolderPicker(w) })
-	selectedFolder = widget.NewLabel("Папка не выбрана")
+	// ===== ВЫБОР ПАПКИ-ИСТОЧНИКА =====
+	sourceLabel := widget.NewLabel("Папка для копирования:")
+	sourceButton := widget.NewButton("Выбрать папку", func() {
+		dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if f == nil {
+				return
+			}
+			sourceFolder = f.Path()
+			sourceLabel.SetText("Папка: " + sourceFolder)
+		}, w)
+	})
 
-	folderCont := container.NewVBox(folderLabel, folderButton, selectedFolder)
+	sourceBlock := container.NewVBox(sourceLabel, sourceButton)
+	sourceBlock.Hide()
 
+	// ===== РЕЖИМ БЭКАПА =====
+	modeSelector := widget.NewRadioGroup(
+		[]string{"Файл", "Папка"},
+		func(s string) {
+			if s == "Файл" {
+				backupMode = "file"
+
+				fileBlock.Show()
+				sourceBlock.Hide()
+			} else {
+				backupMode = "folder"
+
+				fileBlock.Hide()
+				sourceBlock.Show()
+			}
+		},
+	)
+	modeSelector.SetSelected("Файл")
+
+	// ===== ВЫБОР ПАПКИ НАЗНАЧЕНИЯ =====
+	targetLabel := widget.NewLabel("Папка назначения:")
+	targetButton := widget.NewButton("Выбрать папку назначения", func() {
+		dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+			if f == nil {
+				return
+			}
+			targetFolder = f.Path()
+			targetLabel.SetText("Назначение: " + targetFolder)
+		}, w)
+	})
+
+	targetBlock := container.NewVBox(targetLabel, targetButton)
+
+	// ===== КНОПКА БЭКАПА =====
 	backupButton := widget.NewButton("Сделать резервную копию", func() {
-		if fileURI == nil || folderPath == "" {
-			dialog.ShowInformation("Ошибка", "Выберите файл и папку", w)
+
+		if targetFolder == "" {
+			dialog.ShowInformation("Ошибка", "Выберите папку назначения", w)
 			return
 		}
 
-		err := svc.RunManualBackup(fileURI.Path(), folderPath)
+		var err error
+
+		switch backupMode {
+		case "file":
+			if fileURI == nil {
+				dialog.ShowInformation("Ошибка", "Выберите файл для копирования", w)
+				return
+			}
+			err = svc.RunManualBackup(fileURI.Path(), targetFolder)
+
+		case "folder":
+			if sourceFolder == "" {
+				dialog.ShowInformation("Ошибка", "Выберите папку для копирования", w)
+				return
+			}
+			err = svc.RunFolderBackup(sourceFolder, targetFolder)
+		}
+
 		if err != nil {
 			dialog.ShowError(err, w)
 			return
@@ -46,37 +126,16 @@ func NewBackup(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		dialog.ShowInformation("Готово", "Резервная копия успешно создана", w)
 	})
 
-	return container.NewVBox(fileCont, folderCont, backupButton)
-}
-
-func showFilePicker(w fyne.Window) {
-	dialog.ShowFileOpen(func(f fyne.URIReadCloser, err error) {
-		saveFile := "NoFileYet"
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-		if f == nil {
-			return
-		}
-		saveFile = f.URI().Path()
-		fileURI = f.URI()
-		selectedFile.SetText(saveFile)
-	}, w)
-}
-
-func showFolderPicker(w fyne.Window) {
-	dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
-		saveFolder := "NoFolderYet"
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-		if f == nil {
-			return
-		}
-		saveFolder = f.Path()
-		folderPath = saveFolder
-		selectedFolder.SetText(saveFolder)
-	}, w)
+	// ===== КОМПОНОВКА =====
+	return container.NewVBox(
+		widget.NewLabelWithStyle("Резервное копирование", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		modeSelector,
+		widget.NewSeparator(),
+		fileBlock,
+		sourceBlock,
+		widget.NewSeparator(),
+		targetBlock,
+		widget.NewSeparator(),
+		backupButton,
+	)
 }

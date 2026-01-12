@@ -9,53 +9,134 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-var restoreBackupPath string
-var restoreTargetPath string
+var (
+	restoreMode         = "file" // file | folder
+	restoreFileURI      fyne.URI
+	restoreSourceFolder string
+	restoreTargetFolder string
+	overwriteOriginal   bool
+)
 
 func NewRestore(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
-	backupLabel := widget.NewLabel("Выберите файл резервной копии:")
-	backupBtn := widget.NewButton("Выбрать backup", func() {
+	// ===== ВЫБОР ФАЙЛА =====
+	fileLabel := widget.NewLabel("Выберите файл резервной копии:")
+	fileButton := widget.NewButton("Выбрать файл", func() {
 		dialog.ShowFileOpen(func(f fyne.URIReadCloser, err error) {
 			if err != nil || f == nil {
 				return
 			}
-			restoreBackupPath = f.URI().Path()
-			backupLabel.SetText("Backup: " + restoreBackupPath)
+			restoreFileURI = f.URI()
+			fileLabel.SetText("Файл: " + restoreFileURI.Path())
 		}, w)
 	})
 
-	targetLabel := widget.NewLabel("Выберите папку для восстановления:")
+	fileBlock := container.NewVBox(fileLabel, fileButton)
+
+	// ===== ВЫБОР ПАПКИ ИСТОЧНИКА =====
+	folderLabel := widget.NewLabel("Выберите папку резервной копии:")
+	folderButton := widget.NewButton("Выбрать папку", func() {
+		dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
+			if err != nil || f == nil {
+				return
+			}
+			restoreSourceFolder = f.Path()
+			folderLabel.SetText("Папка: " + restoreSourceFolder)
+		}, w)
+	})
+
+	folderBlock := container.NewVBox(folderLabel, folderButton)
+	folderBlock.Hide()
+
+	// ===== РЕЖИМ ВОССТАНОВЛЕНИЯ =====
+	modeSelector := widget.NewRadioGroup(
+		[]string{"Файл", "Папка"},
+		func(s string) {
+			if s == "Файл" {
+				restoreMode = "file"
+
+				fileBlock.Show()
+				folderBlock.Hide()
+			} else {
+				restoreMode = "folder"
+
+				fileBlock.Hide()
+				folderBlock.Show()
+			}
+		},
+	)
+	modeSelector.SetSelected("Файл")
+
+	// ===== ВЫБОР ПАПКИ НАЗНАЧЕНИЯ =====
+	targetLabel := widget.NewLabel("Папка для восстановления:")
 	targetBtn := widget.NewButton("Выбрать папку", func() {
 		dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
 			if err != nil || f == nil {
 				return
 			}
-			restoreTargetPath = f.Path()
-			targetLabel.SetText("Папка: " + restoreTargetPath)
+			restoreTargetFolder = f.Path()
+			targetLabel.SetText("Папка: " + restoreTargetFolder)
 		}, w)
 	})
 
+	targetBlock := container.NewVBox(targetLabel, targetBtn)
+
+	// ===== ПЕРЕЗАПИСЬ =====
+	overwriteCheck := widget.NewCheck("Перезаписать в исходную папку", func(v bool) {
+		overwriteOriginal = v
+		targetBlock.Hidden = v
+		targetBlock.Refresh()
+	})
+
+	// ===== КНОПКА RESTORE =====
 	restoreBtn := widget.NewButton("Восстановить", func() {
-		if restoreBackupPath == "" || restoreTargetPath == "" {
-			dialog.ShowInformation("Ошибка", "Выберите backup и папку", w)
+
+		if !overwriteOriginal && restoreTargetFolder == "" {
+			dialog.ShowInformation("Ошибка", "Выберите папку назначения", w)
 			return
 		}
 
-		if err := svc.RestoreBackup(restoreBackupPath, restoreTargetPath); err != nil {
+		var err error
+
+		if restoreMode == "file" {
+			if restoreFileURI == nil {
+				dialog.ShowInformation("Ошибка", "Выберите файл", w)
+				return
+			}
+			err = svc.RunFileRestore(
+				restoreFileURI.Path(),
+				restoreTargetFolder,
+				overwriteOriginal,
+			)
+		} else {
+			if restoreSourceFolder == "" {
+				dialog.ShowInformation("Ошибка", "Выберите папку", w)
+				return
+			}
+			err = svc.RunFolderRestore(
+				restoreSourceFolder,
+				restoreTargetFolder,
+				overwriteOriginal,
+			)
+		}
+
+		if err != nil {
 			dialog.ShowError(err, w)
 			return
 		}
 
-		dialog.ShowInformation("Готово", "Файл успешно восстановлен", w)
+		dialog.ShowInformation("Готово", "Восстановление успешно завершено", w)
 	})
 
 	return container.NewVBox(
-		backupLabel,
-		backupBtn,
+		widget.NewLabelWithStyle("Восстановление", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		modeSelector,
 		widget.NewSeparator(),
-		targetLabel,
-		targetBtn,
+		fileBlock,
+		folderBlock,
+		widget.NewSeparator(),
+		overwriteCheck,
+		targetBlock,
 		widget.NewSeparator(),
 		restoreBtn,
 	)
