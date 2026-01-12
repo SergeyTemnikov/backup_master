@@ -2,17 +2,6 @@ APP_NAME=backup_master
 CMD_PATH=cmd/app/main.go
 BUILD_DIR=build
 
-# Определяем ОС
-ifeq ($(OS),Windows_NT)
-	EXT=.exe
-	RM=del /Q
-	MKDIR=mkdir
-else
-	EXT=
-	RM=rm -f
-	MKDIR=mkdir -p
-endif
-
 # ========================
 # ЗАПУСК
 # ========================
@@ -20,18 +9,17 @@ run:
 	go run $(CMD_PATH)
 
 # ========================
-# СБОРКА
+# СБОРКА Linux
 # ========================
-build:
-	$(MKDIR) $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(APP_NAME)$(EXT) $(CMD_PATH)
+build-linux:
+	fyne-cross linux -arch amd64 -name BackupMaster -app-id com.example.backupmaster ./cmd/app
 
 # ========================
-# СБОРКА С ИНФО
+# СБОРКА Windows
 # ========================
-build-info:
-	$(MKDIR) $(BUILD_DIR)
-	go build -v -o $(BUILD_DIR)/$(APP_NAME)$(EXT) $(CMD_PATH)
+build-windows:
+	fyne-cross windows -name BackupMaster -app-id com.example.backupmaster ./cmd/app
+
 
 # ========================
 # ОЧИСТКА
