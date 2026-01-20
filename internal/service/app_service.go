@@ -8,10 +8,13 @@ import (
 )
 
 type AppService struct {
-	DB          *sql.DB
-	TaskRepo    *repository.TaskRepository
-	BackupRepo  *repository.BackupRepository
-	StorageRepo *repository.StorageRepository
+	DB           *sql.DB
+	TaskRepo     *repository.TaskRepository
+	BackupRepo   *repository.BackupRepository
+	StorageRepo  *repository.StorageRepository
+	SettingsRepo *repository.SettingsRepository
+
+	Settings *model.AppSettings
 
 	BackupSvc  *BackupService
 	RestoreSvc *RestoreService
@@ -27,13 +30,23 @@ func NewAppService(dbPath string) (*AppService, error) {
 		return nil, err
 	}
 
+	settingsRepo := repository.NewSettingsRepository(db)
+
+	settings, err := settingsRepo.Get()
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppService{
-		DB:          db,
-		TaskRepo:    repository.NewTaskRepository(db),
-		BackupRepo:  repository.NewBackupRepository(db),
-		StorageRepo: repository.NewStorageRepository(db),
-		BackupSvc:   NewBackupService(),
-		RestoreSvc:  NewRestoreService(),
+		DB:           db,
+		TaskRepo:     repository.NewTaskRepository(db),
+		BackupRepo:   repository.NewBackupRepository(db),
+		StorageRepo:  repository.NewStorageRepository(db),
+		SettingsRepo: settingsRepo,
+		Settings:     settings,
+
+		BackupSvc:  NewBackupService(),
+		RestoreSvc: NewRestoreService(),
 	}, nil
 }
 
@@ -43,7 +56,6 @@ func NewAppService(dbPath string) (*AppService, error) {
 
 // EnsureDemoData добавляет тестовые данные, если БД пустая
 func (s *AppService) EnsureDemoData() error {
-	// если уже есть бэкапы — считаем, что данные есть
 	count, err := s.BackupRepo.CountAll()
 	if err != nil {
 		return err
@@ -299,6 +311,15 @@ func (s *AppService) GetUpcomingTasks(limit int) ([]model.Task, error) {
 	return s.TaskRepo.GetUpcoming(limit)
 }
 
+// Проверка на заполненность хранилища
+func (s *AppService) IsStorageExceeded() bool {
+	used, err := s.StorageRepo.CalcDirSize(s.Settings.BackupRootPath)
+	if err != nil {
+		return false
+	}
+	return used > s.Settings.MaxStorageBytes
+}
+
 //////////////////////
 // TASKS / PLANNER
 //////////////////////
@@ -351,27 +372,17 @@ func (s *AppService) UpcomingCount() int {
 
 // ====== STORAGES ======
 
-type StorageView struct {
-	Name  string
-	Used  int64
-	Total int64
-}
-
-func (s *AppService) Storages() []StorageView {
-	storages, err := s.GetStorages()
+func (s *AppService) GetStorageUsedBytes() (int64, error) {
+	settings, err := s.SettingsRepo.Get()
 	if err != nil {
-		return nil
+		return 0, err
 	}
 
-	result := make([]StorageView, 0, len(storages))
-	for _, st := range storages {
-		result = append(result, StorageView{
-			Name:  st.Name,
-			Used:  st.UsedBytes,
-			Total: st.MaxBytes,
-		})
+	if settings.BackupRootPath == "" {
+		return 0, nil
 	}
-	return result
+
+	return s.StorageRepo.GetUsedBytes(settings.BackupRootPath)
 }
 
 // ====== BACKUPS ======

@@ -3,14 +3,16 @@ package ui
 import (
 	"backup_master/internal/service"
 	"strconv"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
-func NewDashboard(svc *service.AppService) fyne.CanvasObject {
+func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
 	status := container.NewHBox(
 		statusCard("Успешно", svc.SuccessCount()),
@@ -18,45 +20,54 @@ func NewDashboard(svc *service.AppService) fyne.CanvasObject {
 		statusCard("Ближайшие", svc.UpcomingCount()),
 	)
 
-	storages := container.NewVBox()
-	for _, s := range svc.Storages() {
-		bar := widget.NewProgressBar()
-		bar.Max = float64(s.Total)
-		bar.SetValue(float64(s.Used))
-		storages.Add(container.NewVBox(
-			widget.NewLabel(s.Name),
-			bar,
-		))
-	}
+	bar := progressBar(svc)
+	label := widget.NewLabel("")
 
-	table := widget.NewTable(
-		func() (int, int) { return len(svc.LastBackups()), 3 },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
-		func(id widget.TableCellID, o fyne.CanvasObject) {
-			b := svc.LastBackups()[id.Row]
-			l := o.(*widget.Label)
-			switch id.Col {
-			case 0:
-				l.SetText("Task #" + strconv.FormatInt(b.TaskID, 10))
-			case 1:
-				l.SetText(b.StartedAt.Format("02.01 15:04"))
-			case 2:
-				l.SetText(b.Status)
-			}
+	startStorageMonitor(
+		bar,
+		label,
+		w,
+		func() (int64, error) {
+			return svc.GetStorageUsedBytes()
 		},
+		svc.Settings.MaxStorageBytes,
 	)
-	//table.SetMinSize(fyne.NewSize(0, 200))
 
-	return container.NewVScroll(container.NewVBox(
-		Title("Статус"),
-		status,
-		layout.NewSpacer(),
-		Title("Хранилища"),
-		storages,
-		layout.NewSpacer(),
-		Title("Последние копии"),
-		table,
-	))
+	storageBlock := container.NewVBox(
+		widget.NewLabel("Хранилище"),
+		bar,
+		label,
+	)
+
+	return container.NewVScroll(
+		container.NewVBox(
+			Title("Статус"),
+			status,
+			layout.NewSpacer(),
+			storageBlock,
+		),
+	)
+}
+
+func progressBar(svc *service.AppService) *widget.ProgressBar {
+	bar := widget.NewProgressBar()
+	label := widget.NewLabel("")
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			used, _ := svc.StorageRepo.CalcDirSize(svc.Settings.BackupRootPath)
+			total := svc.Settings.MaxStorageBytes
+
+			bar.Max = float64(total)
+			bar.SetValue(float64(used))
+			label.SetText(formatBytes(used) + " / " + formatBytes(total))
+		}
+	}()
+
+	return bar
 }
 
 func statusCard(title string, count int) fyne.CanvasObject {
@@ -64,4 +75,60 @@ func statusCard(title string, count int) fyne.CanvasObject {
 		Title(title),
 		Title(strconv.Itoa(count)),
 	)
+}
+
+// TODO: Логика продолжения бэкапа и стартовое окно
+func startStorageMonitor(
+	bar *widget.ProgressBar,
+	label *widget.Label,
+	w fyne.Window,
+	getUsed func() (int64, error),
+	maxBytes int64,
+) {
+	var limitDialogShown bool
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			used, err := getUsed()
+			if err != nil {
+				continue
+			}
+
+			bar.Max = float64(maxBytes)
+			bar.SetValue(float64(used))
+			label.SetText(
+				formatBytes(used) + " / " + formatBytes(maxBytes),
+			)
+
+			// 🔴 Проверка превышения лимита
+			if used > maxBytes && !limitDialogShown {
+				limitDialogShown = true
+
+				// Диалог должен создаваться в UI-контексте
+				fyne.CurrentApp().SendNotification(&fyne.Notification{
+					Title:   "Превышен лимит хранилища",
+					Content: "Занято больше места, чем разрешено в настройках",
+				})
+
+				dialog.ShowConfirm(
+					"Превышен лимит",
+					"Лимит хранилища превышен. Продолжить резервное копирование?",
+					func(ok bool) {
+						if ok {
+							// продолжить
+						}
+					},
+					w,
+				)
+
+			}
+
+			if used <= maxBytes {
+				limitDialogShown = false
+			}
+		}
+	}()
 }

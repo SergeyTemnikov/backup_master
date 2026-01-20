@@ -19,11 +19,10 @@ func LoadUI(app fyne.App, svc *service.AppService) {
 	)
 
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Главная", NewDashboard(svc)),
+		container.NewTabItem("Главная", NewDashboard(svc, w)),
 		container.NewTabItem("Бэкап", NewBackup(svc, w)),
 		container.NewTabItem("Восстановление", NewRestore(svc, w)),
-		// container.NewTabItem("Планы", NewPlanner(svc)),
-		// container.NewTabItem("Восстановление", NewRestore(svc)),
+		container.NewTabItem("Настройки", NewSettings(svc, w)),
 	)
 
 	w.SetContent(container.NewBorder(topBar, nil, nil, nil, tabs))

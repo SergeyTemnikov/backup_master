@@ -35,6 +35,23 @@ func InitSchema(db *sql.DB) error {
 		finished_at DATETIME NOT NULL,
 		FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS settings (
+		backup_root_path TEXT NOT NULL,
+		max_storage_bytes INTEGER NOT NULL,
+		theme_mode TEXT NOT NULL
+	);
+
+	INSERT OR IGNORE INTO settings (
+		backup_root_path,
+		max_storage_bytes,
+		theme_mode
+	) VALUES (
+		'',
+		0,
+		'system'
+	);
+
 	`
 
 	_, err := db.Exec(schema)
