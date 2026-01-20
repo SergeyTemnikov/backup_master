@@ -2,11 +2,9 @@ package ui
 
 import (
 	"backup_master/internal/service"
-	"image/color"
 	"strconv"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
@@ -50,20 +48,20 @@ func NewDashboard(svc *service.AppService) fyne.CanvasObject {
 	//table.SetMinSize(fyne.NewSize(0, 200))
 
 	return container.NewVScroll(container.NewVBox(
-		canvas.NewText("Статус", color.White),
+		Title("Статус"),
 		status,
 		layout.NewSpacer(),
-		canvas.NewText("Хранилища", color.White),
+		Title("Хранилища"),
 		storages,
 		layout.NewSpacer(),
-		canvas.NewText("Последние копии", color.White),
+		Title("Последние копии"),
 		table,
 	))
 }
 
 func statusCard(title string, count int) fyne.CanvasObject {
 	return container.NewVBox(
-		canvas.NewText(title, color.White),
-		canvas.NewText(strconv.Itoa(count), color.White),
+		Title(title),
+		Title(strconv.Itoa(count)),
 	)
 }
