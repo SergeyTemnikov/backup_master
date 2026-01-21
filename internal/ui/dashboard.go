@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -20,7 +19,7 @@ func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		statusCard("Ближайшие", svc.UpcomingCount()),
 	)
 
-	bar := progressBar(svc)
+	bar := progressBar()
 	label := widget.NewLabel("")
 
 	startStorageMonitor(
@@ -30,11 +29,13 @@ func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		func() (int64, error) {
 			return svc.GetStorageUsedBytes()
 		},
-		svc.Settings.MaxStorageBytes,
+		func() int64 {
+			return svc.Settings.MaxStorageBytes
+		},
 	)
 
 	storageBlock := container.NewVBox(
-		widget.NewLabel("Хранилище"),
+		Title("Хранилище"),
 		bar,
 		label,
 	)
@@ -43,30 +44,14 @@ func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		container.NewVBox(
 			Title("Статус"),
 			status,
-			layout.NewSpacer(),
 			storageBlock,
 		),
 	)
 }
 
-func progressBar(svc *service.AppService) *widget.ProgressBar {
+func progressBar() *widget.ProgressBar {
 	bar := widget.NewProgressBar()
-	label := widget.NewLabel("")
-
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			used, _ := svc.StorageRepo.CalcDirSize(svc.Settings.BackupRootPath)
-			total := svc.Settings.MaxStorageBytes
-
-			bar.Max = float64(total)
-			bar.SetValue(float64(used))
-			label.SetText(formatBytes(used) + " / " + formatBytes(total))
-		}
-	}()
-
+	bar.Min = 0
 	return bar
 }
 
@@ -77,13 +62,12 @@ func statusCard(title string, count int) fyne.CanvasObject {
 	)
 }
 
-// TODO: Логика продолжения бэкапа и стартовое окно
 func startStorageMonitor(
 	bar *widget.ProgressBar,
 	label *widget.Label,
 	w fyne.Window,
 	getUsed func() (int64, error),
-	maxBytes int64,
+	getMax func() int64,
 ) {
 	var limitDialogShown bool
 
@@ -97,38 +81,35 @@ func startStorageMonitor(
 				continue
 			}
 
-			bar.Max = float64(maxBytes)
-			bar.SetValue(float64(used))
-			label.SetText(
-				formatBytes(used) + " / " + formatBytes(maxBytes),
-			)
+			maxBytes := getMax()
 
-			// 🔴 Проверка превышения лимита
-			if used > maxBytes && !limitDialogShown {
-				limitDialogShown = true
-
-				// Диалог должен создаваться в UI-контексте
-				fyne.CurrentApp().SendNotification(&fyne.Notification{
-					Title:   "Превышен лимит хранилища",
-					Content: "Занято больше места, чем разрешено в настройках",
-				})
-
-				dialog.ShowConfirm(
-					"Превышен лимит",
-					"Лимит хранилища превышен. Продолжить резервное копирование?",
-					func(ok bool) {
-						if ok {
-							// продолжить
-						}
-					},
-					w,
+			fyne.Do(func() {
+				bar.Max = float64(maxBytes)
+				bar.SetValue(float64(used))
+				label.SetText(
+					formatBytes(used) + " / " + formatBytes(maxBytes),
 				)
 
-			}
+				if maxBytes > 0 && used > maxBytes && !limitDialogShown {
+					limitDialogShown = true
 
-			if used <= maxBytes {
-				limitDialogShown = false
-			}
+					fyne.CurrentApp().SendNotification(&fyne.Notification{
+						Title:   "Превышен лимит хранилища",
+						Content: "Занято больше места, чем разрешено в настройках",
+					})
+
+					dialog.ShowConfirm(
+						"Превышен лимит",
+						"Лимит хранилища превышен. Продолжить резервное копирование?",
+						func(ok bool) {},
+						w,
+					)
+				}
+
+				if used <= maxBytes {
+					limitDialogShown = false
+				}
+			})
 		}
 	}()
 }

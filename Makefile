@@ -37,8 +37,8 @@ fyne-reload:
 	sudo apt autoremove
 	sudo apt update
 	sudo apt install golang-go
-	source ~/.bashrc
 	echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+	source ~/.bashrc
 	go install fyne.io/fyne/v2/cmd/fyne@latest
 
 # ========================

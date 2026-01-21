@@ -5,18 +5,11 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 )
 
 func LoadUI(app fyne.App, svc *service.AppService) {
 	w := app.NewWindow("Backup Master")
-	w.Resize(fyne.NewSize(1280, 720))
-
-	topBar := container.NewHBox(
-		Title("Backup Master"),
-		layout.NewSpacer(),
-		ThemeToggleButton(),
-	)
+	w.Resize(fyne.NewSize(800, 600))
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Главная", NewDashboard(svc, w)),
@@ -25,6 +18,6 @@ func LoadUI(app fyne.App, svc *service.AppService) {
 		container.NewTabItem("Настройки", NewSettings(svc, w)),
 	)
 
-	w.SetContent(container.NewBorder(topBar, nil, nil, nil, tabs))
+	w.SetContent(container.NewBorder(Title("Backup Master"), nil, nil, nil, tabs))
 	w.Show()
 }

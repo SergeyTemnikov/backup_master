@@ -3,12 +3,10 @@ package ui
 import (
 	"backup_master/internal/service"
 	"fmt"
-	"strconv"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -16,7 +14,7 @@ func NewSettings(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
 	// ====== ТЕМА ======
 	themeRadio := widget.NewRadioGroup(
-		[]string{"system", "light", "dark"},
+		[]string{"Системная", "Светлая", "Темная"},
 		func(value string) {
 			svc.Settings.ThemeMode = value
 			applyTheme(fyne.CurrentApp(), value)
@@ -40,30 +38,47 @@ func NewSettings(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		}, w)
 	})
 
-	// ====== ЛИМИТ ======
-	limitEntry := widget.NewEntry()
-	limitEntry.SetText(fmt.Sprintf("%d", svc.Settings.MaxStorageBytes))
+	// ====== ЛИМИТ ХРАНИЛИЩА ======
+	diskBytes, err := service.GetDiskTotalBytes(svc.Settings.BackupRootPath)
+	if err != nil {
+		diskBytes = 500 * 1024 * 1024 * 1024 // fallback 500 GB
+	}
 
-	saveLimit := widget.NewButton("Сохранить лимит", func() {
-		if v, err := strconv.ParseInt(limitEntry.Text, 10, 64); err == nil {
-			svc.Settings.MaxStorageBytes = v
-			_ = svc.SettingsRepo.Save(svc.Settings)
-		}
-	})
+	maxGB := bytesToGB(diskBytes)
+	currentGB := bytesToGB(svc.Settings.MaxStorageBytes)
+
+	limitLabel := widget.NewLabel("")
+	limitSlider := widget.NewSlider(1, maxGB)
+	limitSlider.Step = 1
+	limitSlider.SetValue(currentGB)
+
+	updateLimitLabel := func(v float64) {
+		limitLabel.SetText(
+			fmt.Sprintf("Лимит: %.0f GB из %.0f GB", v, maxGB),
+		)
+	}
+
+	limitSlider.OnChanged = func(v float64) {
+		updateLimitLabel(v)
+	}
+
+	limitSlider.OnChangeEnded = func(v float64) {
+		svc.Settings.MaxStorageBytes = gbToBytes(v)
+		_ = svc.SettingsRepo.Save(svc.Settings)
+	}
+
+	updateLimitLabel(currentGB)
 
 	return container.NewVScroll(
 		container.NewVBox(
-			Title("Настройки"),
 			Title("Тема"),
 			themeRadio,
-			layout.NewSpacer(),
 
 			Title("Хранилище"),
 			pathLabel,
 			selectDir,
-			widget.NewLabel("Максимальный размер (байты)"),
-			limitEntry,
-			saveLimit,
+			limitLabel,
+			limitSlider,
 		),
 	)
 }
