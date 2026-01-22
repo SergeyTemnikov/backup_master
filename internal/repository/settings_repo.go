@@ -17,6 +17,7 @@ func (r *SettingsRepository) Get() (*model.AppSettings, error) {
 	row := r.db.QueryRow(`
 		SELECT backup_root_path, max_storage_bytes, theme_mode
 		FROM settings
+		WHERE id = 1
 	`)
 
 	var s model.AppSettings
@@ -39,6 +40,7 @@ func (r *SettingsRepository) Save(s *model.AppSettings) error {
 			backup_root_path = ?,
 			max_storage_bytes = ?,
 			theme_mode = ?
+		WHERE id = 1
 	`,
 		s.BackupRootPath,
 		s.MaxStorageBytes,
@@ -52,6 +54,7 @@ func (r *SettingsRepository) UpdateBackupSettings(path string, maxBytes int64) e
 	_, err := r.db.Exec(`
 		UPDATE settings
 		SET backup_root_path = ?, max_storage_bytes = ?
+		WHERE id = 1
 	`, path, maxBytes)
 
 	return err
@@ -61,6 +64,7 @@ func (r *SettingsRepository) UpdateTheme(mode string) error {
 	_, err := r.db.Exec(`
 		UPDATE settings
 		SET theme_mode = ?
+		WHERE id = 1
 	`, mode)
 
 	return err

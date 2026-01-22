@@ -37,6 +37,8 @@ func InitSchema(db *sql.DB) error {
 	);
 
 	CREATE TABLE IF NOT EXISTS settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+
 		backup_root_path TEXT NOT NULL,
 		max_storage_bytes INTEGER NOT NULL,
 		theme_mode TEXT NOT NULL

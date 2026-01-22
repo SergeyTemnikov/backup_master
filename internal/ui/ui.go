@@ -11,6 +11,10 @@ func LoadUI(app fyne.App, svc *service.AppService) {
 	w := app.NewWindow("Backup Master")
 	w.Resize(fyne.NewSize(800, 600))
 
+	if svc.Settings.BackupRootPath == "" {
+		ShowFirstRunDialog(svc, w)
+	}
+
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Главная", NewDashboard(svc, w)),
 		container.NewTabItem("Бэкап", NewBackup(svc, w)),
