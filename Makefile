@@ -40,6 +40,7 @@ fyne-reload:
 	echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
 	source ~/.bashrc
 	go install fyne.io/fyne/v2/cmd/fyne@latest
+	go install github.com/fyne-io/fyne-cross@latest
 
 # ========================
 # ПРОВЕРКА
