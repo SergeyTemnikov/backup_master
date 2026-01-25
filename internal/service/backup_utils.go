@@ -115,3 +115,34 @@ func copyDirWithOverwrite(src, dst string) error {
 		return copyFile(path, target)
 	})
 }
+
+func BuildCron(
+	period string,
+	minute string,
+	hour string,
+	weekday string,
+	dayOfMonth string,
+) (string, error) {
+
+	switch period {
+
+	case "Каждый час":
+		return fmt.Sprintf("0 %s * * * *", minute), nil
+
+	case "Каждый день":
+		return fmt.Sprintf("0 %s %s * * *", minute, hour), nil
+
+	case "Каждую неделю":
+		wd := map[string]string{
+			"Пн": "1", "Вт": "2", "Ср": "3",
+			"Чт": "4", "Пт": "5", "Сб": "6", "Вс": "0",
+		}[weekday]
+
+		return fmt.Sprintf("0 %s %s * * %s", minute, hour, wd), nil
+
+	case "Каждый месяц":
+		return fmt.Sprintf("0 %s %s %s * *", minute, hour, dayOfMonth), nil
+	}
+
+	return "", fmt.Errorf("неизвестный период")
+}

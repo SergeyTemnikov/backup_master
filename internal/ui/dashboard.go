@@ -13,10 +13,24 @@ import (
 
 func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
+	success := widget.NewLabel("0")
+	errors := widget.NewLabel("0")
+	upcoming := widget.NewLabel("0")
+
+	update := func() {
+		success.SetText(strconv.Itoa(svc.SuccessCount()))
+		errors.SetText(strconv.Itoa(svc.ErrorCount()))
+		upcoming.SetText(strconv.Itoa(svc.UpcomingCount()))
+	}
+
+	update()
+
+	startDashboardMonitor(w, 3*time.Second, update)
+
 	status := container.NewHBox(
-		statusCard("Успешно", svc.SuccessCount()),
-		statusCard("Ошибки", svc.ErrorCount()),
-		statusCard("Ближайшие", svc.UpcomingCount()),
+		container.NewVBox(Title("Успешно"), success),
+		container.NewVBox(Title("Ошибки"), errors),
+		container.NewVBox(Title("Ближайшие"), upcoming),
 	)
 
 	bar := progressBar()
@@ -34,32 +48,32 @@ func NewDashboard(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		},
 	)
 
-	storageBlock := container.NewVBox(
-		Title("Хранилище"),
-		bar,
-		label,
-	)
-
 	return container.NewVScroll(
 		container.NewVBox(
 			Title("Статус"),
 			status,
-			storageBlock,
+			container.NewVBox(
+				Title("Хранилище"),
+				bar,
+				label,
+			),
 		),
 	)
 }
 
-func progressBar() *widget.ProgressBar {
-	bar := widget.NewProgressBar()
-	bar.Min = 0
-	return bar
-}
+func startDashboardMonitor(
+	w fyne.Window,
+	interval time.Duration,
+	update func(),
+) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 
-func statusCard(title string, count int) fyne.CanvasObject {
-	return container.NewVBox(
-		Title(title),
-		Title(strconv.Itoa(count)),
-	)
+		for range ticker.C {
+			fyne.Do(update)
+		}
+	}()
 }
 
 func startStorageMonitor(

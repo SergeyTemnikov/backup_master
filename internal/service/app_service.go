@@ -4,6 +4,9 @@ import (
 	"backup_master/internal/model"
 	"backup_master/internal/repository"
 	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -11,13 +14,16 @@ type AppService struct {
 	DB           *sql.DB
 	TaskRepo     *repository.TaskRepository
 	BackupRepo   *repository.BackupRepository
-	StorageRepo  *repository.StorageRepository
 	SettingsRepo *repository.SettingsRepository
 
 	Settings *model.AppSettings
 
 	BackupSvc  *BackupService
 	RestoreSvc *RestoreService
+
+	Progress chan *model.BackupProgress
+
+	Scheduler *Scheduler
 }
 
 func NewAppService(dbPath string) (*AppService, error) {
@@ -37,17 +43,22 @@ func NewAppService(dbPath string) (*AppService, error) {
 		return nil, err
 	}
 
-	return &AppService{
+	svc := &AppService{
 		DB:           db,
 		TaskRepo:     repository.NewTaskRepository(db),
 		BackupRepo:   repository.NewBackupRepository(db),
-		StorageRepo:  repository.NewStorageRepository(db),
 		SettingsRepo: settingsRepo,
 		Settings:     settings,
 
 		BackupSvc:  NewBackupService(),
 		RestoreSvc: NewRestoreService(),
-	}, nil
+
+		Progress: make(chan *model.BackupProgress, 16),
+	}
+
+	svc.Scheduler = NewScheduler(svc)
+
+	return svc, nil
 }
 
 //////////////////////
@@ -63,10 +74,6 @@ func (s *AppService) EnsureDemoData() error {
 	if count > 0 {
 		return nil
 	}
-
-	if err := s.seedStorages(); err != nil {
-		return err
-	}
 	if err := s.seedTasks(); err != nil {
 		return err
 	}
@@ -77,37 +84,11 @@ func (s *AppService) EnsureDemoData() error {
 	return nil
 }
 
-func (s *AppService) seedStorages() error {
-	storages := []model.Storage{
-		{
-			Name:      "Локальный диск C:",
-			Path:      "/",
-			MaxBytes:  500 * 1024 * 1024 * 1024, // 500 GB
-			UsedBytes: 120 * 1024 * 1024 * 1024,
-			CreatedAt: time.Now(),
-		},
-	}
-
-	for _, st := range storages {
-		_, err := s.DB.Exec(`
-			INSERT INTO storages (name, path, max_bytes, used_bytes, created_at)
-			VALUES (?, ?, ?, ?, ?)
-		`,
-			st.Name, st.Path, st.MaxBytes, st.UsedBytes, st.CreatedAt,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *AppService) seedTasks() error {
 	tasks := []model.Task{
 		{
 			Name:       "Документы",
 			SourcePath: "/home/user/Documents",
-			StorageID:  1,
 			Schedule:   "Каждый день в 21:00",
 			Enabled:    true,
 			CreatedAt:  time.Now(),
@@ -115,7 +96,6 @@ func (s *AppService) seedTasks() error {
 		{
 			Name:       "Фото",
 			SourcePath: "/home/user/Pictures",
-			StorageID:  1,
 			Schedule:   "Каждый день в 23:00",
 			Enabled:    true,
 			CreatedAt:  time.Now(),
@@ -174,42 +154,17 @@ func ptr(s string) *string {
 //////////////////////
 
 func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
-	started := time.Now()
-
 	size, err := s.BackupSvc.BackupFile(srcFile, dstFolder)
-
-	status := "OK"
-	var errMsg *string
-
-	if err != nil {
-		status = "ERROR"
-		msg := err.Error()
-		errMsg = &msg
-	}
-
-	_, dbErr := s.DB.Exec(`
-		INSERT INTO backups (task_id, status, size_bytes, error_message, started_at, finished_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
-		nil, // task_id = NULL (ручной запуск)
-		status,
-		size,
-		errMsg,
-		started,
-		time.Now(),
-	)
-
-	if dbErr != nil {
-		return dbErr
-	}
-
-	return err
+	return s.saveManualBackup(size, err)
 }
 
-func (s *AppService) RunFolderBackup(sourceDir, targetDir string) error {
-	started := time.Now()
+func (s *AppService) RunManualFolderBackup(srcFile, dstFolder string) error {
+	size, err := s.BackupSvc.BackupFolder(srcFile, dstFolder)
+	return s.saveManualBackup(size, err)
+}
 
-	size, err := s.BackupSvc.BackupFolder(sourceDir, targetDir)
+func (s *AppService) saveManualBackup(size int64, err error) error {
+	started := time.Now()
 
 	status := "OK"
 	var errMsg *string
@@ -231,7 +186,7 @@ func (s *AppService) RunFolderBackup(sourceDir, targetDir string) error {
 		)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`,
-		nil, // ручной запуск
+		nil,
 		status,
 		size,
 		errMsg,
@@ -247,7 +202,155 @@ func (s *AppService) RunFolderBackup(sourceDir, targetDir string) error {
 }
 
 //////////////////////
-// РУЧНОЙ РЕСТОР
+// Запуск планировщика
+//////////////////////
+
+func (s *AppService) StartScheduler() error {
+	if s.Scheduler == nil {
+		s.Scheduler = NewScheduler(s)
+	}
+	return s.Scheduler.Start()
+}
+
+func (s *AppService) runTask(task model.Task) {
+	started := time.Now()
+
+	s.Progress <- &model.BackupProgress{
+		TaskID:  task.ID,
+		Percent: 0,
+		Message: "Запуск задачи",
+	}
+
+	if err := s.CheckStorageLimit(); err != nil {
+		s.sendTaskError(task.ID, err)
+		return
+	}
+
+	var (
+		size int64
+		err  error
+	)
+
+	fmt.Printf(
+		"DEBUG task %d sourceType=%q\n",
+		task.ID,
+		task.SourceType,
+	)
+
+	switch task.SourceType {
+	case "file":
+		size, err = s.BackupSvc.BackupFile(
+			task.SourcePath,
+			s.Settings.BackupRootPath,
+		)
+
+	case "folder":
+		size, err = s.BackupSvc.BackupFolder(
+			task.SourcePath,
+			s.Settings.BackupRootPath,
+		)
+
+	default:
+		s.sendTaskError(task.ID, fmt.Errorf("неизвестный тип источника"))
+		return
+	}
+
+	status := "OK"
+	var errMsg *string
+
+	if err != nil {
+		status = "ERROR"
+		msg := err.Error()
+		errMsg = &msg
+	}
+
+	_, dbErr := s.DB.Exec(`
+		INSERT INTO backups (
+			task_id,
+			status,
+			size_bytes,
+			error_message,
+			started_at,
+			finished_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`,
+		task.ID,
+		status,
+		size,
+		errMsg,
+		started,
+		time.Now(),
+	)
+
+	if dbErr != nil {
+		s.sendTaskError(task.ID, dbErr)
+		return
+	}
+
+	s.Progress <- &model.BackupProgress{
+		TaskID:  task.ID,
+		Percent: 100,
+		Message: "Задача завершена",
+	}
+}
+
+func (s *AppService) sendTaskError(taskID int64, err error) {
+	s.Progress <- &model.BackupProgress{
+		TaskID:  taskID,
+		Message: err.Error(),
+	}
+}
+
+func (s *AppService) CheckStorageLimit() error {
+	used, err := s.GetUsedBytes(s.Settings.BackupRootPath)
+	if err != nil {
+		return err
+	}
+
+	if used > s.Settings.MaxStorageBytes {
+		return fmt.Errorf("превышен лимит хранилища")
+	}
+	return nil
+}
+
+// ////////////////////
+// Авто бэкап
+// ////////////////////
+func (s *AppService) RunTask(task model.Task) {
+	go s.runTask(task)
+}
+
+// ////////////////////
+// Работа с тасками
+// ////////////////////
+
+func (s *AppService) CreateTask(task *model.Task) error {
+	err := s.TaskRepo.Create(task)
+	if err == nil && s.Scheduler != nil {
+		s.Scheduler.Reload()
+	}
+	return err
+}
+
+func (s *AppService) DeleteTask(taskID int64) error {
+	err := s.TaskRepo.Delete(taskID)
+	if err == nil && s.Scheduler != nil {
+		s.Scheduler.Reload()
+	}
+	return err
+}
+
+func (s *AppService) SetTaskEnabled(taskID int64, enabled bool) error {
+	err := s.TaskRepo.SetEnabled(taskID, enabled)
+	if err == nil && s.Scheduler != nil {
+		s.Scheduler.Reload()
+	}
+	return err
+}
+
+//////////////////////
+// РЕСТОР
 //////////////////////
 
 func (s *AppService) RunFileRestore(
@@ -301,11 +404,6 @@ func (s *AppService) GetLastBackups(limit int) ([]model.Backup, error) {
 	return s.BackupRepo.GetLast(limit)
 }
 
-// Хранилища
-func (s *AppService) GetStorages() ([]model.Storage, error) {
-	return s.StorageRepo.GetAll()
-}
-
 // Ближайшие задачи
 func (s *AppService) GetUpcomingTasks(limit int) ([]model.Task, error) {
 	return s.TaskRepo.GetUpcoming(limit)
@@ -313,45 +411,21 @@ func (s *AppService) GetUpcomingTasks(limit int) ([]model.Task, error) {
 
 // Проверка на заполненность хранилища
 func (s *AppService) IsStorageExceeded() bool {
-	used, err := s.StorageRepo.CalcDirSize(s.Settings.BackupRootPath)
+	used, err := s.GetUsedBytes(s.Settings.BackupRootPath)
 	if err != nil {
 		return false
 	}
 	return used > s.Settings.MaxStorageBytes
 }
 
-//////////////////////
-// TASKS / PLANNER
-//////////////////////
-
-func (s *AppService) GetAllTasks() ([]model.Task, error) {
-	return s.TaskRepo.GetAll()
-}
-
-func (s *AppService) CreateTask(task *model.Task) error {
-	return s.TaskRepo.Create(task)
-}
-
-func (s *AppService) SetTaskEnabled(taskID int64, enabled bool) error {
-	return s.TaskRepo.SetEnabled(taskID, enabled)
-}
-
-//////////////////////
-// BACKUPS / RECOVERY
-//////////////////////
-
-func (s *AppService) GetAllBackups() ([]model.Backup, error) {
-	return s.BackupRepo.GetAll()
-}
-
 // ====== DASHBOARD SHORT METHODS ======
 
 func (s *AppService) SuccessCount() int {
-	total, _, _, err := s.GetBackupStats()
+	total, errors, _, err := s.GetBackupStats()
 	if err != nil {
 		return 0
 	}
-	return total
+	return total - errors
 }
 
 func (s *AppService) ErrorCount() int {
@@ -382,15 +456,21 @@ func (s *AppService) GetStorageUsedBytes() (int64, error) {
 		return 0, nil
 	}
 
-	return s.StorageRepo.GetUsedBytes(settings.BackupRootPath)
+	return s.GetUsedBytes(settings.BackupRootPath)
 }
 
-// ====== BACKUPS ======
+func (s *AppService) GetUsedBytes(rootPath string) (int64, error) {
+	var total int64
 
-func (s *AppService) LastBackups() []model.Backup {
-	backups, err := s.GetLastBackups(5)
-	if err != nil {
+	err := filepath.Walk(rootPath, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
 		return nil
-	}
-	return backups
+	})
+
+	return total, err
 }

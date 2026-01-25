@@ -12,3 +12,9 @@ func Title(text string) fyne.CanvasObject {
 		fyne.TextStyle{Bold: true},
 	)
 }
+
+func progressBar() *widget.ProgressBar {
+	bar := widget.NewProgressBar()
+	bar.Min = 0
+	return bar
+}

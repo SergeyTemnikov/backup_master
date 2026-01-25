@@ -49,7 +49,7 @@ func ShowFirstRunDialog(svc *service.AppService, w fyne.Window) {
 	}
 
 	themeRadio := widget.NewRadioGroup(
-		[]string{"Системная", "Светлая", "Тёмная"},
+		[]string{"Системная", "Светлая", "Темная"},
 		func(v string) {
 			themeMode = v
 		},
