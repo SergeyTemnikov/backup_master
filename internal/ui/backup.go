@@ -4,6 +4,7 @@ import (
 	"backup_master/internal/model"
 	"backup_master/internal/service"
 	"fmt"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -154,6 +155,8 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		tasks         []model.Task
 		selectedIndex = -1
 		list          *widget.List
+		taskStates    = map[int64]model.TaskState{}
+		taskStatesMu  sync.RWMutex
 	)
 
 	loadTasks := func() {
@@ -169,7 +172,7 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		},
 		func() fyne.CanvasObject {
 			return container.NewVBox(
-				Title("name"),
+				container.NewHBox(Title("name"), widget.NewLabel("status")),
 				widget.NewLabel("schedule"),
 				widget.NewLabel("next"),
 			)
@@ -177,7 +180,24 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			c := obj.(*fyne.Container)
 
-			c.Objects[0].(*widget.Label).SetText(tasks[id].Name)
+			taskStatesMu.RLock()
+			state, ok := taskStates[tasks[id].ID]
+			taskStatesMu.RUnlock()
+
+			if !ok {
+				state = model.TaskIdle
+			}
+
+			stateLabel := map[model.TaskState]string{
+				model.TaskIdle:    "ожидает",
+				model.TaskRunning: "выполняется",
+				model.TaskSuccess: "выполнено",
+				model.TaskError:   "ошибка",
+			}[state]
+
+			// c.Objects[0].(*widget.Label).SetText(tasks[id].Name)
+			c.Objects[0].(*fyne.Container).Objects[0].(*widget.Label).SetText(tasks[id].Name)
+			c.Objects[0].(*fyne.Container).Objects[1].(*widget.Label).SetText(stateLabel)
 			c.Objects[1].(*widget.Label).SetText(
 				HumanizeCron(tasks[id].Schedule),
 			)
@@ -186,6 +206,18 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 			)
 		},
 	)
+
+	go func() {
+		for ev := range svc.TaskStateChan {
+			taskStatesMu.Lock()
+			taskStates[ev.TaskID] = ev.State
+			taskStatesMu.Unlock()
+
+			fyne.Do(func() {
+				list.Refresh()
+			})
+		}
+	}()
 
 	list.OnSelected = func(id widget.ListItemID) {
 		selectedIndex = id

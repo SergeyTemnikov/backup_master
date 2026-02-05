@@ -5,8 +5,10 @@ import (
 	"backup_master/internal/repository"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,10 @@ type AppService struct {
 	Progress chan *model.BackupProgress
 
 	Scheduler *Scheduler
+
+	TaskStates    map[int64]model.TaskState
+	TaskStatesMu  sync.RWMutex
+	TaskStateChan chan model.TaskStateEvent
 }
 
 func NewAppService(dbPath string) (*AppService, error) {
@@ -54,6 +60,9 @@ func NewAppService(dbPath string) (*AppService, error) {
 		RestoreSvc: NewRestoreService(),
 
 		Progress: make(chan *model.BackupProgress, 16),
+
+		TaskStates:    make(map[int64]model.TaskState),
+		TaskStateChan: make(chan model.TaskStateEvent, 16),
 	}
 
 	svc.Scheduler = NewScheduler(svc)
@@ -213,7 +222,23 @@ func (s *AppService) StartScheduler() error {
 }
 
 func (s *AppService) runTask(task model.Task) {
+	if !s.trySetRunning(task.ID) {
+		log.Printf("task %d already running, skip\n", task.ID)
+		return
+	}
+
+	s.notifyTaskState(task.ID, model.TaskRunning)
+
+	finalState := model.TaskSuccess
 	started := time.Now()
+
+	defer func() {
+		if r := recover(); r != nil {
+			finalState = model.TaskError
+		}
+		s.setTaskState(task.ID, finalState)
+		s.notifyTaskState(task.ID, finalState)
+	}()
 
 	s.Progress <- &model.BackupProgress{
 		TaskID:  task.ID,
@@ -222,6 +247,7 @@ func (s *AppService) runTask(task model.Task) {
 	}
 
 	if err := s.CheckStorageLimit(); err != nil {
+		finalState = model.TaskError
 		s.sendTaskError(task.ID, err)
 		return
 	}
@@ -251,6 +277,7 @@ func (s *AppService) runTask(task model.Task) {
 		)
 
 	default:
+		finalState = model.TaskError
 		s.sendTaskError(task.ID, fmt.Errorf("неизвестный тип источника"))
 		return
 	}
@@ -259,6 +286,7 @@ func (s *AppService) runTask(task model.Task) {
 	var errMsg *string
 
 	if err != nil {
+		finalState = model.TaskError
 		status = "ERROR"
 		msg := err.Error()
 		errMsg = &msg
@@ -284,6 +312,7 @@ func (s *AppService) runTask(task model.Task) {
 	)
 
 	if dbErr != nil {
+		finalState = model.TaskError
 		s.sendTaskError(task.ID, dbErr)
 		return
 	}
@@ -315,15 +344,12 @@ func (s *AppService) CheckStorageLimit() error {
 }
 
 // ////////////////////
-// Авто бэкап
+// Авто бэкап/таски
 // ////////////////////
+
 func (s *AppService) RunTask(task model.Task) {
 	go s.runTask(task)
 }
-
-// ////////////////////
-// Работа с тасками
-// ////////////////////
 
 func (s *AppService) CreateTask(task *model.Task) error {
 	err := s.TaskRepo.Create(task)
@@ -347,6 +373,41 @@ func (s *AppService) SetTaskEnabled(taskID int64, enabled bool) error {
 		s.Scheduler.Reload()
 	}
 	return err
+}
+
+func (s *AppService) setTaskState(taskID int64, state model.TaskState) {
+	s.TaskStatesMu.Lock()
+	defer s.TaskStatesMu.Unlock()
+	s.TaskStates[taskID] = state
+}
+
+func (s *AppService) trySetRunning(taskID int64) bool {
+	s.TaskStatesMu.Lock()
+	defer s.TaskStatesMu.Unlock()
+
+	if st, ok := s.TaskStates[taskID]; ok && st == model.TaskRunning {
+		return false
+	}
+
+	s.TaskStates[taskID] = model.TaskRunning
+	return true
+}
+
+func (s *AppService) getTaskState(taskID int64) model.TaskState {
+	s.TaskStatesMu.RLock()
+	defer s.TaskStatesMu.RUnlock()
+
+	if st, ok := s.TaskStates[taskID]; ok {
+		return st
+	}
+	return model.TaskIdle
+}
+
+func (s *AppService) notifyTaskState(taskID int64, state model.TaskState) {
+	select {
+	case s.TaskStateChan <- model.TaskStateEvent{TaskID: taskID, State: state}:
+	default:
+	}
 }
 
 //////////////////////
