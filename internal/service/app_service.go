@@ -535,3 +535,11 @@ func (s *AppService) GetUsedBytes(rootPath string) (int64, error) {
 
 	return total, err
 }
+
+//////////////////////
+// Логи
+//////////////////////
+
+func (s *AppService) GetBackupHistory(limit int) ([]model.BackupWithTask, error) {
+	return s.BackupRepo.GetHistory(limit)
+}

@@ -91,3 +91,50 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	}
 	return backups, nil
 }
+
+func (r *BackupRepository) GetHistory(limit int) ([]model.BackupWithTask, error) {
+	rows, err := r.db.Query(`
+		SELECT
+			b.id,
+			b.task_id,
+			COALESCE(t.name, '—') AS task_name,
+			COALESCE(t.source_path, '-') AS task_path,
+			COALESCE(t.source_type, '-') AS task_type,
+			b.status,
+			b.size_bytes,
+			b.error_message,
+			b.started_at,
+			b.finished_at
+		FROM backups b
+		LEFT JOIN tasks t ON t.id = b.task_id
+		ORDER BY b.started_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []model.BackupWithTask
+
+	for rows.Next() {
+		var b model.BackupWithTask
+		if err := rows.Scan(
+			&b.ID,
+			&b.TaskID,
+			&b.TaskName,
+			&b.BackupPath,
+			&b.SourceType,
+			&b.Status,
+			&b.SizeBytes,
+			&b.ErrorMsg,
+			&b.StartedAt,
+			&b.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		res = append(res, b)
+	}
+
+	return res, nil
+}
