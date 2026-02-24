@@ -195,7 +195,6 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 				model.TaskError:   "ошибка",
 			}[state]
 
-			// c.Objects[0].(*widget.Label).SetText(tasks[id].Name)
 			c.Objects[0].(*fyne.Container).Objects[0].(*widget.Label).SetText(tasks[id].Name)
 			c.Objects[0].(*fyne.Container).Objects[1].(*widget.Label).SetText(stateLabel)
 			c.Objects[1].(*widget.Label).SetText(

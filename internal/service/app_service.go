@@ -540,6 +540,6 @@ func (s *AppService) GetUsedBytes(rootPath string) (int64, error) {
 // Логи
 //////////////////////
 
-func (s *AppService) GetBackupHistory(limit int) ([]model.BackupWithTask, error) {
-	return s.BackupRepo.GetHistory(limit)
+func (s *AppService) GetBackupHistory(limit int, statusFilter string, dateFilter *time.Time) ([]model.BackupWithTask, error) {
+	return s.BackupRepo.GetHistory(limit, statusFilter, dateFilter)
 }

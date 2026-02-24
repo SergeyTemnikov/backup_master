@@ -3,6 +3,8 @@ package repository
 import (
 	"backup_master/internal/model"
 	"database/sql"
+	"strings"
+	"time"
 )
 
 type BackupRepository struct {
@@ -92,24 +94,44 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	return backups, nil
 }
 
-func (r *BackupRepository) GetHistory(limit int) ([]model.BackupWithTask, error) {
-	rows, err := r.db.Query(`
-		SELECT
-			b.id,
-			b.task_id,
-			COALESCE(t.name, '—') AS task_name,
-			COALESCE(t.source_path, '-') AS task_path,
-			COALESCE(t.source_type, '-') AS task_type,
-			b.status,
-			b.size_bytes,
-			b.error_message,
-			b.started_at,
-			b.finished_at
-		FROM backups b
-		LEFT JOIN tasks t ON t.id = b.task_id
-		ORDER BY b.started_at DESC
-		LIMIT ?
-	`, limit)
+func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter *time.Time) ([]model.BackupWithTask, error) {
+	query := `
+        SELECT
+            b.id,
+            b.task_id,
+            COALESCE(t.name, '—') AS task_name,
+            COALESCE(t.source_path, '-') AS task_path,
+            COALESCE(t.source_type, '-') AS task_type,
+            b.status,
+            b.size_bytes,
+            b.error_message,
+            b.started_at,
+            b.finished_at
+        FROM backups b
+        LEFT JOIN tasks t ON t.id = b.task_id
+    `
+
+	conditions := []string{}
+	args := []interface{}{}
+
+	if statusFilter != "" {
+		conditions = append(conditions, "b.status = ?")
+		args = append(args, statusFilter)
+	}
+
+	if dateFilter != nil {
+		conditions = append(conditions, "DATE(b.started_at) = DATE(?)")
+		args = append(args, dateFilter.Format("2006-01-02"))
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query += " ORDER BY b.started_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

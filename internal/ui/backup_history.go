@@ -4,23 +4,28 @@ import (
 	"backup_master/internal/model"
 	"backup_master/internal/service"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/Dmitriy147/fynecalendar"
 )
 
-func NewBackupHistory(svc *service.AppService, _ fyne.Window) fyne.CanvasObject {
+const (
+	all           = "Все"
+	successStatus = "OK"
+	errorStatus   = "ERROR"
+)
 
-	var items []model.BackupWithTask
+var listFilter string = all
+var list *widget.List
+var items []model.BackupWithTask
+var selectedDate *time.Time
 
-	load := func() {
-		items, _ = svc.GetBackupHistory(200)
-	}
+func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
-	load()
-
-	list := widget.NewList(
+	list = widget.NewList(
 		func() int {
 			return len(items)
 		},
@@ -28,11 +33,15 @@ func NewBackupHistory(svc *service.AppService, _ fyne.Window) fyne.CanvasObject 
 			return container.NewVBox(
 				container.NewHBox(
 					widget.NewLabel("Задача"),
+					widget.NewSeparator(),
 					widget.NewLabel("Статус"),
+					widget.NewSeparator(),
 					widget.NewLabel("Размер"),
 				),
-				widget.NewLabel("Время"),
-				widget.NewLabel(""),
+				container.NewHBox(
+					widget.NewLabel("Время"),
+					widget.NewLabel(""),
+				),
 			)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
@@ -41,14 +50,15 @@ func NewBackupHistory(svc *service.AppService, _ fyne.Window) fyne.CanvasObject 
 
 			header := c.Objects[0].(*fyne.Container)
 			header.Objects[0].(*widget.Label).SetText(b.TaskName)
-			header.Objects[1].(*widget.Label).SetText(b.Status)
-			header.Objects[2].(*widget.Label).SetText(formatBytes(b.SizeBytes))
+			header.Objects[2].(*widget.Label).SetText(b.Status)
+			header.Objects[4].(*widget.Label).SetText(formatBytes(b.SizeBytes))
 
-			c.Objects[1].(*widget.Label).SetText(
+			footer := c.Objects[1].(*fyne.Container)
+			footer.Objects[0].(*widget.Label).SetText(
 				b.StartedAt.Format("02.01.2006 15:04"),
 			)
 
-			errorLabel := c.Objects[2].(*widget.Label)
+			errorLabel := footer.Objects[1].(*widget.Label)
 			if b.ErrorMsg != nil && strings.TrimSpace(*b.ErrorMsg) != "" {
 				errorLabel.SetText("Ошибка: " + *b.ErrorMsg)
 			} else {
@@ -57,11 +67,108 @@ func NewBackupHistory(svc *service.AppService, _ fyne.Window) fyne.CanvasObject 
 		},
 	)
 
+	Refresh(svc)
+
 	return container.NewBorder(
-		Title("История резервных копий"),
+		container.NewVBox(
+			Title("История резервных копий"),
+			container.NewHBox(
+				NewFilterPopUP(svc),
+				NewDateFilterButton(svc, w),
+			),
+		),
 		nil,
 		nil,
 		nil,
 		list,
 	)
+}
+
+func Refresh(svc *service.AppService) {
+	filter := listFilter
+	if listFilter == all {
+		filter = ""
+	}
+
+	var dateFilter *time.Time
+	if selectedDate != nil {
+		dateFilter = selectedDate
+	}
+
+	items, _ = svc.GetBackupHistory(200, filter, dateFilter)
+	list.Refresh()
+}
+
+func NewFilterPopUP(svc *service.AppService) fyne.CanvasObject {
+	filterSelect := widget.NewSelect(
+		[]string{
+			all,
+			successStatus,
+			errorStatus,
+		},
+		nil,
+	)
+
+	filterSelect.Selected = listFilter
+
+	filterSelect.OnChanged = func(v string) {
+		listFilter = v
+		Refresh(svc)
+	}
+
+	return container.NewHBox(widget.NewLabel("Статус: "), filterSelect)
+}
+
+type date struct {
+	instruction *widget.Label
+	dateChosen  *widget.Label
+}
+
+func NewDateFilterButton(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
+	dateBtn := widget.NewButton("Выбрать дату", nil)
+
+	dateBtn.OnTapped = func() {
+
+		var pop *widget.PopUp
+
+		var initialDate time.Time
+		if selectedDate != nil {
+			initialDate = *selectedDate
+		} else {
+			initialDate = time.Now()
+		}
+
+		calendar := fynecalendar.NewMyCalendar(
+			true,
+			initialDate,
+			time.Now().AddDate(-1, 0, 0),
+			time.Now(),
+			func(t time.Time) {
+				selected := t
+				selectedDate = &selected
+				dateBtn.SetText(t.Format("02.01.2006"))
+				Refresh(svc)
+				pop.Hide()
+			},
+		)
+
+		content := container.NewVBox(
+			widget.NewLabel("Выберите дату"),
+			calendar,
+			widget.NewButton("Сбросить", func() {
+				selectedDate = nil
+				dateBtn.SetText("Выбрать дату")
+				Refresh(svc)
+				pop.Hide()
+			}),
+			widget.NewButton("Закрыть", func() {
+				pop.Hide()
+			}),
+		)
+
+		pop = widget.NewModalPopUp(content, w.Canvas())
+		pop.Show()
+	}
+
+	return dateBtn
 }

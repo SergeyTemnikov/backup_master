@@ -2,7 +2,6 @@ package model
 
 import "time"
 
-// Backup — результат выполнения задачи
 type Backup struct {
 	ID           int64     // primary key
 	TaskID       int64     // FK -> tasks

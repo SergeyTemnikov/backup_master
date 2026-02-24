@@ -6,7 +6,9 @@ toolchain go1.24.11
 
 require (
 	fyne.io/fyne/v2 v2.7.2
+	github.com/Dmitriy147/fynecalendar v0.0.0-20250714112859-0e6e80845e3c
 	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/sys v0.36.0
 )
 
@@ -34,7 +36,6 @@ require (
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
