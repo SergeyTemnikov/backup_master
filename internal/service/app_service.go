@@ -191,10 +191,12 @@ func (s *AppService) runTask(task model.Task) {
 		s.notifyTaskState(task.ID, finalState)
 	}()
 
-	s.Progress <- &model.BackupProgress{
+	select {
+	case s.Progress <- &model.BackupProgress{
 		TaskID:  task.ID,
 		Percent: 0,
-		Message: "Запуск задачи",
+		Message: "Запуск задачи"}:
+	default:
 	}
 
 	if err := s.CheckStorageLimit(); err != nil {
@@ -257,18 +259,21 @@ func (s *AppService) runTask(task model.Task) {
 		s.sendTaskError(task.ID, dbErr)
 		return
 	}
-
-	s.Progress <- &model.BackupProgress{
+	select {
+	case s.Progress <- &model.BackupProgress{
 		TaskID:  task.ID,
 		Percent: 100,
-		Message: "Задача завершена",
+		Message: "Задача завершена"}:
+	default:
 	}
 }
 
 func (s *AppService) sendTaskError(taskID int64, err error) {
-	s.Progress <- &model.BackupProgress{
+	select {
+	case s.Progress <- &model.BackupProgress{
 		TaskID:  taskID,
-		Message: err.Error(),
+		Message: err.Error()}:
+	default:
 	}
 }
 

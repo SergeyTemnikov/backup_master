@@ -73,6 +73,8 @@ func (s *Scheduler) loadTasks() {
 	for _, task := range tasks {
 		task := task
 
+		log.Printf("register task: %s (%s)\n", task.Name, task.Schedule)
+
 		_, err := s.cron.AddFunc(task.Schedule, func() {
 			s.svc.runTask(task)
 		})
