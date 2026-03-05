@@ -13,4 +13,5 @@ type BackupWithTask struct {
 	ErrorMsg   *string
 	StartedAt  time.Time
 	FinishedAt time.Time
+	Checksum   string
 }

@@ -15,11 +15,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Демоданные (один раз)
-	// if err := svc.EnsureDemoData(); err != nil {
-	// 	log.Fatal(err)
-	// }
-
 	// Запуск планировщика автобэкапов
 	if err := svc.StartScheduler(); err != nil {
 		log.Fatal(err)

@@ -15,6 +15,31 @@ func NewBackupRepository(db *sql.DB) *BackupRepository {
 	return &BackupRepository{db: db}
 }
 
+func (r *BackupRepository) Create(b *model.Backup) error {
+	_, err := r.db.Exec(`
+		INSERT INTO backups (
+			task_id,
+			status,
+			size_bytes,
+			error_message,
+			checksum,
+			started_at,
+			finished_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`,
+		b.TaskID,
+		b.Status,
+		b.SizeBytes,
+		b.ErrorMessage,
+		b.Checksum,
+		b.StartedAt,
+		b.FinishedAt,
+	)
+
+	return err
+}
+
 func (r *BackupRepository) CountAll() (int, error) {
 	row := r.db.QueryRow(`SELECT COUNT(*) FROM backups`)
 	var count int
@@ -34,7 +59,7 @@ func (r *BackupRepository) CountByStatus(status string) (int, error) {
 
 func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at
+		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
 		FROM backups
 		ORDER BY finished_at DESC
 		LIMIT ?
@@ -55,6 +80,7 @@ func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 			&b.ErrorMessage,
 			&b.StartedAt,
 			&b.FinishedAt,
+			&b.Checksum,
 		)
 		if err != nil {
 			return nil, err
@@ -64,9 +90,41 @@ func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 	return backups, nil
 }
 
+func (r *BackupRepository) GetByID(id int64) (*model.Backup, error) {
+	rows, err := r.db.Query(`
+		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
+		FROM backups
+		ORDER BY finished_at DESC
+		WHERE id = ?
+	`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var backup *model.Backup
+	for rows.Next() {
+		var b model.Backup
+		err := rows.Scan(
+			&b.ID,
+			&b.TaskID,
+			&b.Status,
+			&b.SizeBytes,
+			&b.ErrorMessage,
+			&b.StartedAt,
+			&b.FinishedAt,
+			&b.Checksum,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return backup, nil
+}
+
 func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at
+		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
 		FROM backups
 		ORDER BY finished_at DESC
 	`)
@@ -86,6 +144,7 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 			&b.ErrorMessage,
 			&b.StartedAt,
 			&b.FinishedAt,
+			&b.Checksum,
 		); err != nil {
 			return nil, err
 		}
@@ -106,7 +165,8 @@ func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter
             b.size_bytes,
             b.error_message,
             b.started_at,
-            b.finished_at
+            b.finished_at,
+			b.checksum
         FROM backups b
         LEFT JOIN tasks t ON t.id = b.task_id
     `
@@ -152,6 +212,7 @@ func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter
 			&b.ErrorMsg,
 			&b.StartedAt,
 			&b.FinishedAt,
+			&b.Checksum,
 		); err != nil {
 			return nil, err
 		}

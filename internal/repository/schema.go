@@ -44,6 +44,8 @@ func InitSchema(db *sql.DB) error {
 		'system'
 	);
 
+	ALTER TABLE backups ADD COLUMN checksum TEXT;
+
 	`
 
 	_, err := db.Exec(schema)

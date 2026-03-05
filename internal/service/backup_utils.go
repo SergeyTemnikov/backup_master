@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -145,4 +147,33 @@ func BuildCron(
 	}
 
 	return "", fmt.Errorf("неизвестный период")
+}
+
+func dirChecksum(path string) (string, error) {
+	hasher := sha256.New()
+
+	err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.Mode().IsRegular() {
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			if _, err := io.Copy(hasher, f); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

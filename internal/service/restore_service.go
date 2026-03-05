@@ -27,77 +27,170 @@ func (r *RestoreService) RestoreFile(
 	overwrite bool,
 ) error {
 
+	if targetDir == "" {
+		return fmt.Errorf("target directory is required")
+	}
+
+	srcInfo, err := os.Stat(backupPath)
+	if err != nil {
+		return fmt.Errorf("stat backup: %w", err)
+	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("backup is not a regular file")
+	}
+	if srcInfo.Size() == 0 {
+		return fmt.Errorf("backup file is empty")
+	}
+
+	backupName := filepath.Base(backupPath)
+	originalName := restoreOriginalName(backupName)
+	dstPath := filepath.Join(targetDir, originalName)
+	tmpPath := dstPath + ".tmp"
+
+	if _, err := os.Stat(dstPath); err == nil {
+		if !overwrite {
+			return fmt.Errorf("file already exists: %s", dstPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("create target dir: %w", err)
+	}
+
+	backupChecksum, err := fileChecksum(backupPath)
+	if err != nil {
+		return fmt.Errorf("checksum backup: %w", err)
+	}
+
 	src, err := os.Open(backupPath)
 	if err != nil {
 		return err
 	}
 	defer src.Close()
 
-	info, err := src.Stat()
+	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
-		return err
-	}
-	if info.Size() == 0 {
-		return fmt.Errorf("backup file is empty: %s", backupPath)
+		return fmt.Errorf("create temp file: %w", err)
 	}
 
-	_, err = src.Seek(0, 0)
+	if _, err := io.Copy(tmpFile, src); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("copy: %w", err)
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync: %w", err)
+	}
+
+	tmpFile.Close()
+
+	tmpChecksum, err := fileChecksum(tmpPath)
 	if err != nil {
-		return err
+		os.Remove(tmpPath)
+		return fmt.Errorf("checksum restored: %w", err)
 	}
 
-	backupName := filepath.Base(backupPath)
-	originalName := restoreOriginalName(backupName)
-
-	var dstPath string
-
-	if overwrite {
-		// перезапись рядом с backup
-		dstPath = filepath.Join(
-			filepath.Dir(backupPath),
-			originalName,
-		)
-	} else {
-		if targetDir == "" {
-			return fmt.Errorf("target directory is required")
-		}
-		dstPath = filepath.Join(targetDir, originalName)
+	if backupChecksum != tmpChecksum {
+		os.Remove(tmpPath)
+		return fmt.Errorf("checksum mismatch: backup and restored file differ")
 	}
 
-	// Проверка перезаписи
-	if _, err := os.Stat(dstPath); err == nil && !overwrite {
-		return fmt.Errorf("file already exists: %s", dstPath)
-	}
-
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	written, err := io.Copy(dst, src)
-	if err != nil {
-		return err
-	}
-
-	if err := dst.Sync(); err != nil {
-		return err
-	}
-
-	if written == 0 {
-		return fmt.Errorf("restored file is empty after copy")
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename: %w", err)
 	}
 
 	return nil
 }
 
-func restoreOriginalName(backupName string) string {
-	// 1. Убираем .bak
-	name := strings.TrimSuffix(backupName, ".bak")
+func (r *RestoreService) RestoreFileWithChecksum(
+	backupPath string,
+	targetDir string,
+	expectedChecksum string,
+	overwrite bool,
+) error {
 
-	// 2. Отрезаем .YYYYMMDD_HHMMSS
-	if idx := strings.LastIndex(name, "."); idx != -1 {
-		name = name[:idx]
+	if targetDir == "" {
+		return fmt.Errorf("target directory required")
+	}
+
+	backupInfo, err := os.Stat(backupPath)
+	if err != nil {
+		return err
+	}
+	if backupInfo.Size() == 0 {
+		return fmt.Errorf("backup is empty")
+	}
+
+	originalName := restoreOriginalName(filepath.Base(backupPath))
+	dstPath := filepath.Join(targetDir, originalName)
+	tmpPath := dstPath + ".tmp"
+
+	if _, err := os.Stat(dstPath); err == nil && !overwrite {
+		return fmt.Errorf("file exists")
+	}
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return err
+	}
+
+	src, err := os.Open(backupPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	tmpFile, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(tmpFile, src); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+
+	tmpFile.Close()
+
+	actualChecksum, err := fileChecksum(tmpPath)
+	if err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	if actualChecksum != expectedChecksum {
+		os.Remove(tmpPath)
+		return fmt.Errorf("checksum mismatch")
+	}
+
+	if err := os.Rename(tmpPath, dstPath); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	return nil
+}
+
+func restoreOriginalName(name string) string {
+	name = strings.TrimSuffix(name, ".bak")
+
+	if len(name) > 16 {
+		suffix := name[len(name)-15:]
+		if isTimestamp(suffix) {
+			return name[:len(name)-16]
+		}
 	}
 
 	return name
@@ -109,6 +202,10 @@ func (r *RestoreService) RestoreFolder(
 	mode RestoreMode,
 ) error {
 
+	if targetRoot == "" {
+		return fmt.Errorf("target root required")
+	}
+
 	info, err := os.Stat(backupDir)
 	if err != nil {
 		return err
@@ -117,39 +214,53 @@ func (r *RestoreService) RestoreFolder(
 		return fmt.Errorf("backup is not a directory")
 	}
 
-	backupName := filepath.Base(backupDir)
-	originalName := restoreOriginalFolderName(backupName)
+	originalName := restoreOriginalFolderName(filepath.Base(backupDir))
+	finalPath := filepath.Join(targetRoot, originalName)
+	tempPath := finalPath + ".tmp"
 
-	var targetPath string
-
-	switch mode {
-
-	case RestoreToNewFolder:
-		targetPath = filepath.Join(targetRoot, originalName)
-
-		if _, err := os.Stat(targetPath); err == nil {
-			return fmt.Errorf("папка уже существует: %s", targetPath)
-		}
-
-	case RestoreOverwrite:
-		targetPath = filepath.Join(targetRoot, originalName)
-
-		if _, err := os.Stat(targetPath); os.IsNotExist(err) {
-			// если папки нет — просто создаём
-			if err := os.MkdirAll(targetPath, 0755); err != nil {
-				return err
-			}
+	if mode == RestoreToNewFolder {
+		if _, err := os.Stat(finalPath); err == nil {
+			return fmt.Errorf("folder exists")
 		}
 	}
 
-	return copyDirWithOverwrite(backupDir, targetPath)
+	if err := os.MkdirAll(targetRoot, 0755); err != nil {
+		return err
+	}
+
+	// 1️⃣ копируем во временную папку
+	if err := copyDirWithOverwrite(backupDir, tempPath); err != nil {
+		os.RemoveAll(tempPath)
+		return err
+	}
+
+	// 2️⃣ если overwrite — удаляем старую
+	if mode == RestoreOverwrite {
+		os.RemoveAll(finalPath)
+	}
+
+	// 3️⃣ атомарный rename
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		os.RemoveAll(tempPath)
+		return err
+	}
+
+	return nil
 }
 
 func restoreOriginalFolderName(name string) string {
-	// убираем _YYYYMMDD_HHMMSS или .YYYYMMDD_HHMMSS
-	if idx := strings.LastIndexAny(name, "."); idx != -1 {
-		name = name[:idx]
+	if len(name) > 16 {
+		suffix := name[len(name)-15:]
+		if isTimestamp(suffix) {
+			return name[:len(name)-16]
+		}
 	}
-
 	return name
+}
+
+func isTimestamp(s string) bool {
+	if len(s) != 15 {
+		return false
+	}
+	return s[8] == '_'
 }

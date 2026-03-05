@@ -10,4 +10,5 @@ type Backup struct {
 	ErrorMessage *string   // Текст ошибки (если была)
 	StartedAt    time.Time // Время начала
 	FinishedAt   time.Time // Время окончания
+	Checksum     string    // Контрольная сумма
 }

@@ -49,6 +49,12 @@ func NewAppService(dbPath string) (*AppService, error) {
 		return nil, err
 	}
 
+	if settings.BackupRootPath != "" {
+		if err := CleanupTempArtifacts(settings.BackupRootPath); err != nil {
+			log.Printf("cleanup temp failed: %v\n", err)
+		}
+	}
+
 	svc := &AppService{
 		DB:           db,
 		TaskRepo:     repository.NewTaskRepository(db),
@@ -71,109 +77,37 @@ func NewAppService(dbPath string) (*AppService, error) {
 }
 
 //////////////////////
-// Заглушка
-//////////////////////
-
-// EnsureDemoData добавляет тестовые данные, если БД пустая
-func (s *AppService) EnsureDemoData() error {
-	count, err := s.BackupRepo.CountAll()
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	if err := s.seedTasks(); err != nil {
-		return err
-	}
-	if err := s.seedBackups(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *AppService) seedTasks() error {
-	tasks := []model.Task{
-		{
-			Name:       "Документы",
-			SourcePath: "/home/user/Documents",
-			Schedule:   "Каждый день в 21:00",
-			Enabled:    true,
-			CreatedAt:  time.Now(),
-		},
-		{
-			Name:       "Фото",
-			SourcePath: "/home/user/Pictures",
-			Schedule:   "Каждый день в 23:00",
-			Enabled:    true,
-			CreatedAt:  time.Now(),
-		},
-	}
-
-	for _, t := range tasks {
-		if err := s.TaskRepo.Create(&t); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *AppService) seedBackups() error {
-	now := time.Now()
-
-	backups := []model.Backup{
-		{
-			TaskID:     1,
-			Status:     "OK",
-			SizeBytes:  2 * 1024 * 1024 * 1024,
-			StartedAt:  now.Add(-2 * time.Hour),
-			FinishedAt: now.Add(-1*time.Hour + -30*time.Minute),
-		},
-		{
-			TaskID:       2,
-			Status:       "ERROR",
-			SizeBytes:    0,
-			ErrorMessage: ptr("Недостаточно места"),
-			StartedAt:    now.Add(-5 * time.Hour),
-			FinishedAt:   now.Add(-5*time.Hour + 10*time.Minute),
-		},
-	}
-
-	for _, b := range backups {
-		_, err := s.DB.Exec(`
-			INSERT INTO backups (task_id, status, size_bytes, error_message, started_at, finished_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`,
-			b.TaskID, b.Status, b.SizeBytes, b.ErrorMessage, b.StartedAt, b.FinishedAt,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func ptr(s string) *string {
-	return &s
-}
-
-//////////////////////
 // РУЧНОЙ БЭКАП
 //////////////////////
 
 func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
-	size, err := s.BackupSvc.BackupFile(srcFile, dstFolder)
-	return s.saveManualBackup(size, err)
+	started := time.Now()
+
+	size, checksum, err := s.BackupSvc.BackupFile(srcFile, dstFolder)
+
+	finished := time.Now()
+
+	return s.saveManualBackup(0, size, checksum, started, finished, err)
 }
 
 func (s *AppService) RunManualFolderBackup(srcFile, dstFolder string) error {
-	size, err := s.BackupSvc.BackupFolder(srcFile, dstFolder)
-	return s.saveManualBackup(size, err)
+	started := time.Now()
+
+	size, checksum, err := s.BackupSvc.BackupFolder(srcFile, dstFolder)
+
+	finished := time.Now()
+
+	return s.saveManualBackup(0, size, checksum, started, finished, err)
 }
 
-func (s *AppService) saveManualBackup(size int64, err error) error {
-	started := time.Now()
+func (s *AppService) saveManualBackup(
+	taskID int64,
+	size int64,
+	checksum string,
+	started time.Time,
+	finished time.Time,
+	err error,
+) error {
 
 	status := "OK"
 	var errMsg *string
@@ -184,26 +118,17 @@ func (s *AppService) saveManualBackup(size int64, err error) error {
 		errMsg = &msg
 	}
 
-	_, dbErr := s.DB.Exec(`
-		INSERT INTO backups (
-			task_id,
-			status,
-			size_bytes,
-			error_message,
-			started_at,
-			finished_at
-		)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
-		nil,
-		status,
-		size,
-		errMsg,
-		started,
-		time.Now(),
-	)
+	backup := &model.Backup{
+		TaskID:       taskID,
+		Status:       status,
+		SizeBytes:    size,
+		ErrorMessage: errMsg,
+		Checksum:     checksum,
+		StartedAt:    started,
+		FinishedAt:   finished,
+	}
 
-	if dbErr != nil {
+	if dbErr := s.BackupRepo.Create(backup); dbErr != nil {
 		return dbErr
 	}
 
@@ -253,8 +178,9 @@ func (s *AppService) runTask(task model.Task) {
 	}
 
 	var (
-		size int64
-		err  error
+		size     int64
+		err      error
+		checksum string
 	)
 
 	fmt.Printf(
@@ -265,13 +191,13 @@ func (s *AppService) runTask(task model.Task) {
 
 	switch task.SourceType {
 	case "file":
-		size, err = s.BackupSvc.BackupFile(
+		size, checksum, err = s.BackupSvc.BackupFile(
 			task.SourcePath,
 			s.Settings.BackupRootPath,
 		)
 
 	case "folder":
-		size, err = s.BackupSvc.BackupFolder(
+		size, checksum, err = s.BackupSvc.BackupFolder(
 			task.SourcePath,
 			s.Settings.BackupRootPath,
 		)
@@ -292,26 +218,17 @@ func (s *AppService) runTask(task model.Task) {
 		errMsg = &msg
 	}
 
-	_, dbErr := s.DB.Exec(`
-		INSERT INTO backups (
-			task_id,
-			status,
-			size_bytes,
-			error_message,
-			started_at,
-			finished_at
-		)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
-		task.ID,
-		status,
-		size,
-		errMsg,
-		started,
-		time.Now(),
-	)
+	backup := &model.Backup{
+		TaskID:       task.ID,
+		Status:       status,
+		SizeBytes:    size,
+		ErrorMessage: errMsg,
+		Checksum:     checksum,
+		StartedAt:    started,
+		FinishedAt:   time.Now(),
+	}
 
-	if dbErr != nil {
+	if dbErr := s.BackupRepo.Create(backup); dbErr != nil {
 		finalState = model.TaskError
 		s.sendTaskError(task.ID, dbErr)
 		return
@@ -422,6 +339,30 @@ func (s *AppService) RunFileRestore(
 	return s.RestoreSvc.RestoreFile(
 		backupPath,
 		targetDir,
+		overwrite,
+	)
+}
+
+func (s *AppService) RunFileRestoreWithChecksum(
+	backupID int64,
+	backupPath string,
+	targetDir string,
+	overwrite bool,
+) error {
+
+	backup, err := s.BackupRepo.GetByID(backupID)
+	if err != nil {
+		return err
+	}
+
+	if backup.Checksum == "" {
+		return fmt.Errorf("no checksum stored for this backup")
+	}
+
+	return s.RestoreSvc.RestoreFileWithChecksum(
+		backupPath,
+		targetDir,
+		backup.Checksum,
 		overwrite,
 	)
 }
