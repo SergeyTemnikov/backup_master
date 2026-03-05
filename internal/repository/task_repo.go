@@ -17,7 +17,7 @@ func NewTaskRepository(db *sql.DB) *TaskRepository {
 // Все задачи
 func (r *TaskRepository) GetAll() ([]model.Task, error) {
 	rows, err := r.db.Query(`
-		SELECT id, name, source_path, source_type,schedule, enabled, created_at
+		SELECT id, name, source_path, source_type, schedule,  enabled, created_at
 		FROM tasks
 		ORDER BY created_at DESC
 	`)
@@ -48,7 +48,7 @@ func (r *TaskRepository) GetAll() ([]model.Task, error) {
 // Ближайшие задачи (MVP — просто включённые)
 func (r *TaskRepository) GetUpcoming(limit int) ([]model.Task, error) {
 	rows, err := r.db.Query(`
-		SELECT id, name, source_path, source_type, schedule, enabled, created_at
+		SELECT id, name, source_path, source_type schedule, enabled, created_at
 		FROM tasks
 		WHERE enabled = 1
 		ORDER BY created_at DESC

@@ -10,14 +10,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-func ShowFirstRunDialog(svc *service.AppService, w fyne.Window) {
+func ShowFirstRunDialog(svc *service.AppService, w fyne.Window, onConfigured func()) {
 	var (
 		selectedPath string
 		maxGB        float64 = 50
 		themeMode            = "Системная"
 	)
-
-	// ---- UI elements ----
 
 	title := widget.NewLabelWithStyle(
 		"Первичная настройка",
@@ -56,7 +54,6 @@ func ShowFirstRunDialog(svc *service.AppService, w fyne.Window) {
 	)
 	themeRadio.SetSelected("Системная")
 
-	// ---- Dialog (will be assigned later) ----
 	var dlg *dialog.CustomDialog
 
 	saveBtn := widget.NewButton("Сохранить", func() {
@@ -80,14 +77,16 @@ func ShowFirstRunDialog(svc *service.AppService, w fyne.Window) {
 
 		applyTheme(fyne.CurrentApp(), themeMode)
 
-		dlg.Hide() // ✅ закрываем только при успехе
+		if onConfigured != nil {
+			onConfigured()
+		}
+
+		dlg.Hide()
 	})
 
 	exitBtn := widget.NewButton("Выход", func() {
 		w.Close()
 	})
-
-	// ---- Content ----
 
 	content := container.NewVBox(
 		title,

@@ -71,7 +71,7 @@ func (s *Scheduler) loadTasks() {
 	}
 
 	for _, task := range tasks {
-		task := task // важно
+		task := task
 
 		_, err := s.cron.AddFunc(task.Schedule, func() {
 			s.svc.runTask(task)

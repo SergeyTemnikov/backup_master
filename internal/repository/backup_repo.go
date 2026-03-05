@@ -21,16 +21,22 @@ func (r *BackupRepository) Create(b *model.Backup) error {
 			task_id,
 			status,
 			size_bytes,
+			source_path,
+			source_type,
+			target_path,
 			error_message,
 			checksum,
 			started_at,
 			finished_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		b.TaskID,
 		b.Status,
 		b.SizeBytes,
+		b.SourcePath,
+		b.SourceType,
+		b.TargetPath,
 		b.ErrorMessage,
 		b.Checksum,
 		b.StartedAt,
@@ -59,10 +65,19 @@ func (r *BackupRepository) CountByStatus(status string) (int, error) {
 
 func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
+		SELECT 
+			id,
+			task_id,
+			status,
+			size_bytes,
+			source_path,
+			source_type,
+			target_path,
+			error_message,
+			started_at,
+			finished_at,
+			checksum
 		FROM backups
-		ORDER BY finished_at DESC
-		LIMIT ?
 	`, limit)
 	if err != nil {
 		return nil, err
@@ -77,6 +92,9 @@ func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 			&b.TaskID,
 			&b.Status,
 			&b.SizeBytes,
+			&b.SourcePath,
+			&b.SourceType,
+			&b.TargetPath,
 			&b.ErrorMessage,
 			&b.StartedAt,
 			&b.FinishedAt,
@@ -91,40 +109,46 @@ func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 }
 
 func (r *BackupRepository) GetByID(id int64) (*model.Backup, error) {
-	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
+	row := r.db.QueryRow(`
+		SELECT 
+			id,
+			task_id,
+			status,
+			size_bytes,
+			source_path,
+			source_type,
+			target_path,
+			error_message,
+			started_at,
+			finished_at,
+			checksum
 		FROM backups
-		ORDER BY finished_at DESC
 		WHERE id = ?
 	`, id)
+
+	backup := &model.Backup{}
+	err := row.Scan(
+		&backup.ID,
+		&backup.TaskID,
+		&backup.Status,
+		&backup.SizeBytes,
+		&backup.SourcePath,
+		&backup.SourceType,
+		&backup.TargetPath,
+		&backup.ErrorMessage,
+		&backup.StartedAt,
+		&backup.FinishedAt,
+		&backup.Checksum,
+	)
 	if err != nil {
 		return nil, err
-	}
-	defer rows.Close()
-
-	var backup *model.Backup
-	for rows.Next() {
-		var b model.Backup
-		err := rows.Scan(
-			&b.ID,
-			&b.TaskID,
-			&b.Status,
-			&b.SizeBytes,
-			&b.ErrorMessage,
-			&b.StartedAt,
-			&b.FinishedAt,
-			&b.Checksum,
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return backup, nil
 }
 
 func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, error_message, started_at, finished_at, checksum
+		SELECT id, task_id, status, size_bytes, target_path, error_message, started_at, finished_at, checksum
 		FROM backups
 		ORDER BY finished_at DESC
 	`)
@@ -141,6 +165,7 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 			&b.TaskID,
 			&b.Status,
 			&b.SizeBytes,
+			&b.TargetPath,
 			&b.ErrorMessage,
 			&b.StartedAt,
 			&b.FinishedAt,
@@ -155,20 +180,21 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 
 func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter *time.Time) ([]model.BackupWithTask, error) {
 	query := `
-        SELECT
-            b.id,
-            b.task_id,
-            COALESCE(t.name, '—') AS task_name,
-            COALESCE(t.source_path, '-') AS task_path,
-            COALESCE(t.source_type, '-') AS task_type,
-            b.status,
-            b.size_bytes,
-            b.error_message,
-            b.started_at,
-            b.finished_at,
+		SELECT
+			b.id,
+			b.task_id,
+			COALESCE(t.name, 'Ручной бэкап') AS task_name,
+			b.source_path,
+			b.source_type,
+			b.status,
+			b.size_bytes,
+			b.target_path,
+			b.error_message,
+			b.started_at,
+			b.finished_at,
 			b.checksum
-        FROM backups b
-        LEFT JOIN tasks t ON t.id = b.task_id
+		FROM backups b
+		LEFT JOIN tasks t ON t.id = b.task_id
     `
 
 	conditions := []string{}
@@ -205,10 +231,11 @@ func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter
 			&b.ID,
 			&b.TaskID,
 			&b.TaskName,
-			&b.BackupPath,
+			&b.SourcePath,
 			&b.SourceType,
 			&b.Status,
 			&b.SizeBytes,
+			&b.TargetPath,
 			&b.ErrorMsg,
 			&b.StartedAt,
 			&b.FinishedAt,

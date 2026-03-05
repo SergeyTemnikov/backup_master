@@ -116,15 +116,25 @@ func (r *RestoreService) RestoreFileWithChecksum(
 ) error {
 
 	if targetDir == "" {
-		return fmt.Errorf("target directory required")
+		return fmt.Errorf("требуется папка назначения")
 	}
 
 	backupInfo, err := os.Stat(backupPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("backup не найден: %w", err)
 	}
+
 	if backupInfo.Size() == 0 {
-		return fmt.Errorf("backup is empty")
+		return fmt.Errorf("backup файл пуст")
+	}
+
+	backupChecksum, err := fileChecksum(backupPath)
+	if err != nil {
+		return fmt.Errorf("ошибка вычисления checksum backup: %w", err)
+	}
+
+	if backupChecksum != expectedChecksum {
+		return fmt.Errorf("backup повреждён: checksum mismatch")
 	}
 
 	originalName := restoreOriginalName(filepath.Base(backupPath))
@@ -132,7 +142,7 @@ func (r *RestoreService) RestoreFileWithChecksum(
 	tmpPath := dstPath + ".tmp"
 
 	if _, err := os.Stat(dstPath); err == nil && !overwrite {
-		return fmt.Errorf("file exists")
+		return fmt.Errorf("файл уже существует")
 	}
 
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -150,34 +160,40 @@ func (r *RestoreService) RestoreFileWithChecksum(
 		return err
 	}
 
-	if _, err := io.Copy(tmpFile, src); err != nil {
+	defer func() {
 		tmpFile.Close()
 		os.Remove(tmpPath)
-		return err
+	}()
+
+	if _, err := io.Copy(tmpFile, src); err != nil {
+		return fmt.Errorf("ошибка копирования: %w", err)
 	}
 
 	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
 		return err
 	}
 
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
 
-	actualChecksum, err := fileChecksum(tmpPath)
+	restoredChecksum, err := fileChecksum(tmpPath)
 	if err != nil {
-		os.Remove(tmpPath)
 		return err
 	}
 
-	if actualChecksum != expectedChecksum {
-		os.Remove(tmpPath)
-		return fmt.Errorf("checksum mismatch")
+	if restoredChecksum != backupChecksum {
+		return fmt.Errorf("restore verification failed: checksum mismatch")
 	}
 
 	if err := os.Rename(tmpPath, dstPath); err != nil {
-		os.Remove(tmpPath)
-		return err
+		return fmt.Errorf("rename failed: %w", err)
+	}
+
+	dir, err := os.Open(targetDir)
+	if err == nil {
+		dir.Sync()
+		dir.Close()
 	}
 
 	return nil
@@ -228,18 +244,15 @@ func (r *RestoreService) RestoreFolder(
 		return err
 	}
 
-	// 1️⃣ копируем во временную папку
 	if err := copyDirWithOverwrite(backupDir, tempPath); err != nil {
 		os.RemoveAll(tempPath)
 		return err
 	}
 
-	// 2️⃣ если overwrite — удаляем старую
 	if mode == RestoreOverwrite {
 		os.RemoveAll(finalPath)
 	}
 
-	// 3️⃣ атомарный rename
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		os.RemoveAll(tempPath)
 		return err

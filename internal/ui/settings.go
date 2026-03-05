@@ -11,8 +11,6 @@ import (
 )
 
 func NewSettings(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
-
-	// ====== ТЕМА ======
 	themeRadio := widget.NewRadioGroup(
 		[]string{"Системная", "Светлая", "Темная"},
 		func(value string) {
@@ -23,7 +21,6 @@ func NewSettings(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 	)
 	themeRadio.SetSelected(svc.Settings.ThemeMode)
 
-	// ====== ПАПКА ======
 	pathLabel := widget.NewLabel(svc.Settings.BackupRootPath)
 
 	selectDir := widget.NewButton("Выбрать папку", func() {
@@ -38,10 +35,9 @@ func NewSettings(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 		}, w)
 	})
 
-	// ====== ЛИМИТ ХРАНИЛИЩА ======
 	diskBytes, err := service.GetDiskTotalBytes(svc.Settings.BackupRootPath)
 	if err != nil {
-		diskBytes = 500 * 1024 * 1024 * 1024 // fallback 500 GB
+		diskBytes = 500 * 1024 * 1024 * 1024 // 500 GB
 	}
 
 	maxGB := bytesToGB(diskBytes)

@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/Dmitriy147/fynecalendar"
 )
@@ -66,14 +67,20 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 			}
 		},
 	)
+	update := func() {
+		err := refresh(svc)
+		if err != nil {
+			dialog.ShowError(err, w)
+		}
+	}
 
-	Refresh(svc)
+	startListUpdate(w, 3*time.Second, update)
 
 	return container.NewBorder(
 		container.NewVBox(
 			Title("История резервных копий"),
 			container.NewHBox(
-				NewFilterPopUP(svc),
+				NewFilterPopUP(svc, w),
 				NewDateFilterButton(svc, w),
 			),
 		),
@@ -84,7 +91,7 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 	)
 }
 
-func Refresh(svc *service.AppService) {
+func refresh(svc *service.AppService) error {
 	filter := listFilter
 	if listFilter == all {
 		filter = ""
@@ -95,11 +102,16 @@ func Refresh(svc *service.AppService) {
 		dateFilter = selectedDate
 	}
 
-	items, _ = svc.GetBackupHistory(200, filter, dateFilter)
+	data, err := svc.GetBackupHistory(200, filter, dateFilter)
+	if err != nil {
+		return err
+	}
+	items = data
 	list.Refresh()
+	return nil
 }
 
-func NewFilterPopUP(svc *service.AppService) fyne.CanvasObject {
+func NewFilterPopUP(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 	filterSelect := widget.NewSelect(
 		[]string{
 			all,
@@ -113,7 +125,10 @@ func NewFilterPopUP(svc *service.AppService) fyne.CanvasObject {
 
 	filterSelect.OnChanged = func(v string) {
 		listFilter = v
-		Refresh(svc)
+		err := refresh(svc)
+		if err != nil {
+			dialog.ShowError(err, w)
+		}
 	}
 
 	return container.NewHBox(widget.NewLabel("Статус: "), filterSelect)
@@ -147,7 +162,10 @@ func NewDateFilterButton(svc *service.AppService, w fyne.Window) fyne.CanvasObje
 				selected := t
 				selectedDate = &selected
 				dateBtn.SetText(t.Format("02.01.2006"))
-				Refresh(svc)
+				err := refresh(svc)
+				if err != nil {
+					dialog.ShowError(err, w)
+				}
 				pop.Hide()
 			},
 		)
@@ -158,7 +176,10 @@ func NewDateFilterButton(svc *service.AppService, w fyne.Window) fyne.CanvasObje
 			widget.NewButton("Сбросить", func() {
 				selectedDate = nil
 				dateBtn.SetText("Выбрать дату")
-				Refresh(svc)
+				err := refresh(svc)
+				if err != nil {
+					dialog.ShowError(err, w)
+				}
 				pop.Hide()
 			}),
 			widget.NewButton("Закрыть", func() {

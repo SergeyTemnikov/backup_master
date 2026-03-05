@@ -83,27 +83,50 @@ func NewAppService(dbPath string) (*AppService, error) {
 func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
 	started := time.Now()
 
-	size, checksum, err := s.BackupSvc.BackupFile(srcFile, dstFolder)
+	size, checksum, path, err := s.BackupSvc.BackupFile(srcFile, dstFolder)
 
 	finished := time.Now()
 
-	return s.saveManualBackup(0, size, checksum, started, finished, err)
+	return s.saveManualBackup(
+		nil,
+		size,
+		checksum,
+		srcFile,
+		"file",
+		path,
+		started,
+		finished,
+		err,
+	)
 }
 
 func (s *AppService) RunManualFolderBackup(srcFile, dstFolder string) error {
 	started := time.Now()
 
-	size, checksum, err := s.BackupSvc.BackupFolder(srcFile, dstFolder)
+	size, checksum, path, err := s.BackupSvc.BackupFolder(srcFile, dstFolder)
 
 	finished := time.Now()
 
-	return s.saveManualBackup(0, size, checksum, started, finished, err)
+	return s.saveManualBackup(
+		nil,
+		size,
+		checksum,
+		srcFile,
+		"folder",
+		path,
+		started,
+		finished,
+		err,
+	)
 }
 
 func (s *AppService) saveManualBackup(
-	taskID int64,
+	taskID *int64,
 	size int64,
 	checksum string,
+	sourcePath string,
+	sourceType string,
+	targetPath string,
 	started time.Time,
 	finished time.Time,
 	err error,
@@ -122,6 +145,9 @@ func (s *AppService) saveManualBackup(
 		TaskID:       taskID,
 		Status:       status,
 		SizeBytes:    size,
+		SourcePath:   sourcePath,
+		SourceType:   sourceType,
+		TargetPath:   targetPath,
 		ErrorMessage: errMsg,
 		Checksum:     checksum,
 		StartedAt:    started,
@@ -181,23 +207,18 @@ func (s *AppService) runTask(task model.Task) {
 		size     int64
 		err      error
 		checksum string
-	)
-
-	fmt.Printf(
-		"DEBUG task %d sourceType=%q\n",
-		task.ID,
-		task.SourceType,
+		path     string
 	)
 
 	switch task.SourceType {
 	case "file":
-		size, checksum, err = s.BackupSvc.BackupFile(
+		size, checksum, path, err = s.BackupSvc.BackupFile(
 			task.SourcePath,
 			s.Settings.BackupRootPath,
 		)
 
 	case "folder":
-		size, checksum, err = s.BackupSvc.BackupFolder(
+		size, checksum, path, err = s.BackupSvc.BackupFolder(
 			task.SourcePath,
 			s.Settings.BackupRootPath,
 		)
@@ -219,9 +240,12 @@ func (s *AppService) runTask(task model.Task) {
 	}
 
 	backup := &model.Backup{
-		TaskID:       task.ID,
+		TaskID:       &task.ID,
 		Status:       status,
 		SizeBytes:    size,
+		SourcePath:   task.SourcePath,
+		SourceType:   task.SourceType,
+		TargetPath:   path,
 		ErrorMessage: errMsg,
 		Checksum:     checksum,
 		StartedAt:    started,
@@ -345,7 +369,6 @@ func (s *AppService) RunFileRestore(
 
 func (s *AppService) RunFileRestoreWithChecksum(
 	backupID int64,
-	backupPath string,
 	targetDir string,
 	overwrite bool,
 ) error {
@@ -355,12 +378,12 @@ func (s *AppService) RunFileRestoreWithChecksum(
 		return err
 	}
 
-	if backup.Checksum == "" {
-		return fmt.Errorf("no checksum stored for this backup")
+	if backup == nil {
+		return fmt.Errorf("Копия %d не найдена", backupID)
 	}
 
 	return s.RestoreSvc.RestoreFileWithChecksum(
-		backupPath,
+		backup.TargetPath,
 		targetDir,
 		backup.Checksum,
 		overwrite,
@@ -382,7 +405,7 @@ func (s *AppService) RunFolderRestore(
 }
 
 //////////////////////
-// DASHBOARD
+// Дашборд
 //////////////////////
 
 // Статистика для карточек
@@ -420,7 +443,9 @@ func (s *AppService) IsStorageExceeded() bool {
 	return used > s.Settings.MaxStorageBytes
 }
 
-// ====== DASHBOARD SHORT METHODS ======
+//////////////////////
+// Статистика на дашборде
+//////////////////////
 
 func (s *AppService) SuccessCount() int {
 	total, errors, _, err := s.GetBackupStats()
@@ -446,7 +471,9 @@ func (s *AppService) UpcomingCount() int {
 	return upcoming
 }
 
-// ====== STORAGES ======
+//////////////////////
+// Хранилища
+//////////////////////
 
 func (s *AppService) GetStorageUsedBytes() (int64, error) {
 	settings, err := s.SettingsRepo.Get()

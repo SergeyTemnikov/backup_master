@@ -39,7 +39,6 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 		sourceFolder string
 	)
 
-	// ===== ВЫБОР ФАЙЛА =====
 	fileLabel := widget.NewLabel("Файл не выбран")
 	fileButton := widget.NewButton("Выбрать файл", func() {
 		dialog.ShowFileOpen(func(f fyne.URIReadCloser, err error) {
@@ -56,7 +55,6 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 	})
 	fileBlock := container.NewVBox(fileLabel, fileButton)
 
-	// ===== ВЫБОР ПАПКИ =====
 	sourceLabel := widget.NewLabel("Папка не выбрана")
 	sourceButton := widget.NewButton("Выбрать папку", func() {
 		dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
@@ -74,7 +72,6 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 	sourceBlock := container.NewVBox(sourceLabel, sourceButton)
 	sourceBlock.Hide()
 
-	// ===== РЕЖИМ =====
 	modeSelector := widget.NewRadioGroup(
 		[]string{"Файл", "Папка"},
 		func(v string) {
@@ -91,7 +88,6 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 	)
 	modeSelector.SetSelected("Файл")
 
-	// ===== КНОПКА =====
 	backupButton := widget.NewButton("Создать резервную копию", func() {
 
 		dst := svc.Settings.BackupRootPath
@@ -224,7 +220,6 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 
 	loadTasks()
 
-	// ===== ПРОГРЕСС =====
 	progressBar := widget.NewProgressBar()
 	progressLabel := widget.NewLabel("")
 
@@ -237,7 +232,6 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		}
 	}()
 
-	// ===== КНОПКИ =====
 	addBtn := widget.NewButton("Добавить правило", func() {
 		showCreateTaskDialog(svc, w, loadTasks)
 	})
@@ -246,7 +240,10 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		if selectedIndex < 0 {
 			return
 		}
-		go svc.RunTask(tasks[selectedIndex])
+
+		task := tasks[selectedIndex]
+
+		go svc.RunTask(task)
 	})
 
 	toggleBtn := widget.NewButton("Вкл / Выкл", func() {
@@ -292,10 +289,8 @@ func showCreateTaskDialog(
 	w fyne.Window,
 	onSave func(),
 ) {
-	// ===== ОБЩИЕ =====
 	nameEntry := widget.NewEntry()
 
-	// ===== ИСТОЧНИК =====
 	var (
 		sourcePath string
 		sourceType = "file"
@@ -337,7 +332,6 @@ func showCreateTaskDialog(
 		}
 	})
 
-	// ===== РАСПИСАНИЕ =====
 	periodSelect := widget.NewSelect(
 		[]string{
 			"Каждый час",
@@ -401,7 +395,6 @@ func showCreateTaskDialog(
 
 	periodSelect.SetSelected("Каждый день")
 
-	// ===== КНОПКИ =====
 	saveBtn := widget.NewButton("Создать", func() {
 
 		if nameEntry.Text == "" || sourcePath == "" {
@@ -444,7 +437,6 @@ func showCreateTaskDialog(
 		w.Canvas().Overlays().Top().Hide()
 	})
 
-	// ===== ДИАЛОГ =====
 	content := container.NewVBox(
 		widget.NewForm(
 			widget.NewFormItem("Название", nameEntry),
