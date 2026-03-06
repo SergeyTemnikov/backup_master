@@ -17,9 +17,9 @@ import (
 type AppService struct {
 	App          fyne.App
 	DB           *sql.DB
-	TaskRepo     *repository.TaskRepository
-	BackupRepo   *repository.BackupRepository
-	SettingsRepo *repository.SettingsRepository
+	TaskRepo     repository.TaskRepositoryInterface
+	BackupRepo   repository.BackupRepositoryInterface
+	SettingsRepo repository.SettingsRepositoryInterface
 
 	Settings *model.AppSettings
 
@@ -318,6 +318,9 @@ func (s *AppService) sendTaskError(taskID int64, err error) {
 func (s *AppService) CheckStorageLimit() error {
 	used, err := s.GetUsedBytes(s.Settings.BackupRootPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 
@@ -479,7 +482,6 @@ func (s *AppService) RunFolderRestoreWithChecksum(
 // Дашборд
 //////////////////////
 
-// Статистика для карточек
 func (s *AppService) GetBackupStats() (total, errors, upcoming int, err error) {
 	total, err = s.BackupRepo.CountAll()
 	if err != nil {
@@ -495,17 +497,14 @@ func (s *AppService) GetBackupStats() (total, errors, upcoming int, err error) {
 	return
 }
 
-// Последние бэкапы
 func (s *AppService) GetLastBackups(limit int) ([]model.Backup, error) {
 	return s.BackupRepo.GetLast(limit)
 }
 
-// Ближайшие задачи
 func (s *AppService) GetUpcomingTasks(limit int) ([]model.Task, error) {
 	return s.TaskRepo.GetUpcoming(limit)
 }
 
-// Проверка на заполненность хранилища
 func (s *AppService) IsStorageExceeded() bool {
 	used, err := s.GetUsedBytes(s.Settings.BackupRootPath)
 	if err != nil {

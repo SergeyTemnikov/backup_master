@@ -1,0 +1,21 @@
+all: false
+dir: "{{.InterfaceDir}}/mocks"
+filename: "mock_{{.InterfaceName | lower}}.go"
+force-file-write: true
+formatter: goimports
+generate: true
+include-auto-generated: false
+log-level: info
+structname: '{{.Mock}}{{.InterfaceName}}'
+pkgname: 'mocks'
+recursive: false
+require-template-schema-exists: true
+template: testify
+template-schema: '{{.Template}}.schema.json'
+
+packages:
+  backup_master/internal/repository:
+    interfaces:
+      TaskRepositoryInterface:
+      SettingsRepositoryInterface:
+      BackupRepositoryInterface:

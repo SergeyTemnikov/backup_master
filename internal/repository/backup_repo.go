@@ -7,6 +7,18 @@ import (
 	"time"
 )
 
+type BackupRepositoryInterface interface {
+	Create(b *model.Backup) error
+	CountAll() (int, error)
+	CountByStatus(status string) (int, error)
+	GetLast(limit int) ([]model.Backup, error)
+	GetByID(id int64) (*model.Backup, error)
+	GetAll() ([]model.Backup, error)
+	GetHistory(limit int, statusFilter string, dateFilter *time.Time, id *int64) ([]model.BackupWithTask, error)
+}
+
+var _ BackupRepositoryInterface = (*BackupRepository)(nil)
+
 type BackupRepository struct {
 	db *sql.DB
 }
@@ -78,6 +90,8 @@ func (r *BackupRepository) GetLast(limit int) ([]model.Backup, error) {
 			finished_at,
 			checksum
 		FROM backups
+		ORDER BY started_at DESC
+		LIMIT ?
 	`, limit)
 	if err != nil {
 		return nil, err
@@ -148,7 +162,7 @@ func (r *BackupRepository) GetByID(id int64) (*model.Backup, error) {
 
 func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	rows, err := r.db.Query(`
-		SELECT id, task_id, status, size_bytes, target_path, error_message, started_at, finished_at, checksum
+		SELECT id, task_id, status, size_bytes, source_path, source_type, target_path, error_message, started_at, finished_at, checksum
 		FROM backups
 		ORDER BY finished_at DESC
 	`)

@@ -96,6 +96,7 @@ Thumbs.db
 .env
 .env.local
 .env.*
+.yaml
 
 ############################
 # Coverage

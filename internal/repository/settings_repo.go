@@ -3,7 +3,17 @@ package repository
 import (
 	"backup_master/internal/model"
 	"database/sql"
+	"errors"
 )
+
+type SettingsRepositoryInterface interface {
+	Get() (*model.AppSettings, error)
+	Save(s *model.AppSettings) error
+	UpdateBackupSettings(path string, maxBytes int64) error
+	UpdateTheme(mode string) error
+}
+
+var _ SettingsRepositoryInterface = (*SettingsRepository)(nil)
 
 type SettingsRepository struct {
 	db *sql.DB
@@ -34,7 +44,7 @@ func (r *SettingsRepository) Get() (*model.AppSettings, error) {
 }
 
 func (r *SettingsRepository) Save(s *model.AppSettings) error {
-	_, err := r.db.Exec(`
+	res, err := r.db.Exec(`
 		UPDATE settings
 		SET
 			backup_root_path = ?,
@@ -46,8 +56,15 @@ func (r *SettingsRepository) Save(s *model.AppSettings) error {
 		s.MaxStorageBytes,
 		s.ThemeMode,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return errors.New("settings not found, cannot update")
+	}
+	return nil
 }
 
 func (r *SettingsRepository) UpdateBackupSettings(path string, maxBytes int64) error {
