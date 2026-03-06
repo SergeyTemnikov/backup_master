@@ -216,6 +216,22 @@ func parseCronInt(s string) int {
 	return val
 }
 
+func fileChecksum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hash := sha256.New()
+
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 func dirChecksum(path string) (string, error) {
 	hasher := sha256.New()
 
