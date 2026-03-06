@@ -7,7 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"fyne.io/fyne/v2/widget"
 )
 
 func copyDir(src, dst string) error {
@@ -147,6 +150,69 @@ func BuildCron(
 	}
 
 	return "", fmt.Errorf("неизвестный период")
+}
+
+func ParseCronToUI(
+	cron string,
+	periodSelect, minuteSelect, hourSelect, weekdaySelect, dayOfMonthSelect *widget.Select,
+	refreshCB func(),
+) {
+	parts := strings.Fields(cron)
+	if len(parts) < 6 {
+		periodSelect.SetSelected("Каждый день")
+		refreshCB()
+		return
+	}
+
+	minute := parts[1]
+	hour := parts[2]
+	dayOfMonth := parts[3]
+	weekday := parts[5]
+
+	switch {
+	case dayOfMonth == "*" && weekday == "*":
+		if hour == "*" {
+			periodSelect.SetSelected("Каждый час")
+		} else {
+			periodSelect.SetSelected("Каждый день")
+		}
+
+	case dayOfMonth == "*" && weekday != "*":
+		periodSelect.SetSelected("Каждую неделю")
+
+	case dayOfMonth != "*" && weekday == "*":
+		periodSelect.SetSelected("Каждый месяц")
+
+	default:
+		periodSelect.SetSelected("Каждый день")
+	}
+
+	if minute != "*" {
+		minuteSelect.SetSelected(fmt.Sprintf("%02d", parseCronInt(minute)))
+	}
+	if hour != "*" {
+		hourSelect.SetSelected(fmt.Sprintf("%02d", parseCronInt(hour)))
+	}
+	if weekday != "*" {
+		weekdayMap := map[string]string{
+			"1": "Пн", "2": "Вт", "3": "Ср",
+			"4": "Чт", "5": "Пт", "6": "Сб", "0": "Вс", "7": "Вс",
+		}
+		weekdaySelect.SetSelected(weekdayMap[weekday])
+	}
+	if dayOfMonth != "*" {
+		dayOfMonthSelect.SetSelected(fmt.Sprintf("%02d", parseCronInt(dayOfMonth)))
+	}
+
+	refreshCB()
+}
+
+func parseCronInt(s string) int {
+	val, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return val
 }
 
 func dirChecksum(path string) (string, error) {

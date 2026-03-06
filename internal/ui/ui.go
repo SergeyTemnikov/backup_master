@@ -11,7 +11,7 @@ import (
 
 func LoadUI(app fyne.App, svc *service.AppService) {
 	w := app.NewWindow("Backup Master")
-	w.Resize(fyne.NewSize(800, 600))
+	w.Resize(fyne.NewSize(900, 600))
 
 	setupTray(app, w)
 

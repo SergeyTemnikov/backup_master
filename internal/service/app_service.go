@@ -409,6 +409,34 @@ func (s *AppService) RunFolderRestore(
 	return s.RestoreSvc.RestoreFolder(backupDir, targetDir, mode)
 }
 
+func (s *AppService) RunFolderRestoreWithChecksum(
+	backupID int64,
+	targetDir string,
+	overwrite bool,
+) error {
+
+	backup, err := s.BackupRepo.GetByID(backupID)
+	if err != nil {
+		return err
+	}
+
+	if backup == nil {
+		return fmt.Errorf("Копия %d не найдена", backupID)
+	}
+
+	mode := RestoreToNewFolder
+	if overwrite {
+		mode = RestoreOverwrite
+	}
+
+	return s.RestoreSvc.RestoreFolderWithChecksum(
+		backup.TargetPath,
+		targetDir,
+		backup.Checksum,
+		mode,
+	)
+}
+
 //////////////////////
 // Дашборд
 //////////////////////

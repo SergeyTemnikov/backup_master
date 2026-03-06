@@ -39,12 +39,13 @@ func (b *BackupService) BackupFile(srcPath, dstDir string) (int64, string, strin
 
 	finalName := info.Name() + "." + time.Now().Format("20060102_150405") + ".bak"
 	finalPath := filepath.Join(dstDir, finalName)
-	tmpPath := finalPath + ".tmp"
 
-	tmpFile, err := os.Create(tmpPath)
+	tmpFile, err := os.CreateTemp(dstDir, finalName+".*.tmp")
 	if err != nil {
 		return 0, "", "", err
 	}
+
+	tmpPath := tmpFile.Name()
 
 	written, err := io.Copy(tmpFile, src)
 	if err != nil {

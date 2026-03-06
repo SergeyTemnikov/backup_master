@@ -176,6 +176,8 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			c := obj.(*fyne.Container)
 
+			task := tasks[id]
+
 			taskStatesMu.RLock()
 			state, ok := taskStates[tasks[id].ID]
 			taskStatesMu.RUnlock()
@@ -191,7 +193,12 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 				model.TaskError:   "ошибка",
 			}[state]
 
-			c.Objects[0].(*fyne.Container).Objects[0].(*widget.Label).SetText(tasks[id].Name)
+			nameSuffix := ""
+			if !task.Enabled {
+				nameSuffix = " ⏸"
+			}
+
+			c.Objects[0].(*fyne.Container).Objects[0].(*widget.Label).SetText(tasks[id].Name + nameSuffix)
 			c.Objects[0].(*fyne.Container).Objects[1].(*widget.Label).SetText(stateLabel)
 			c.Objects[1].(*widget.Label).SetText(
 				HumanizeCron(tasks[id].Schedule),
@@ -256,6 +263,14 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 		loadTasks()
 	})
 
+	editBtn := widget.NewButton("Редактировать", func() {
+		if selectedIndex < 0 {
+			return
+		}
+		task := tasks[selectedIndex]
+		showEditTaskDialog(svc, w, &task, loadTasks)
+	})
+
 	deleteBtn := widget.NewButton("Удалить", func() {
 		if selectedIndex < 0 {
 			return
@@ -278,6 +293,7 @@ func newAutoBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 			addBtn,
 			runBtn,
 			toggleBtn,
+			editBtn,
 			deleteBtn,
 		),
 		list,
@@ -473,4 +489,160 @@ func genRange(from, to int) []string {
 		out = append(out, fmt.Sprintf("%02d", i))
 	}
 	return out
+}
+
+func showEditTaskDialog(
+	svc *service.AppService,
+	w fyne.Window,
+	task *model.Task,
+	onSave func(),
+) {
+	nameEntry := widget.NewEntry()
+	nameEntry.SetText(task.Name)
+
+	var (
+		sourcePath = task.SourcePath
+		sourceType = task.SourceType
+	)
+
+	sourceLabel := widget.NewLabel(sourcePath)
+	if sourcePath == "" {
+		sourceLabel.SetText("Не выбран")
+	}
+
+	sourceTypeRadio := widget.NewRadioGroup(
+		[]string{"Файл", "Папка"},
+		func(v string) {
+			if v == "Файл" {
+				sourceType = "file"
+			} else {
+				sourceType = "folder"
+			}
+		},
+	)
+
+	if sourceType == "file" {
+		sourceTypeRadio.SetSelected("Файл")
+	} else {
+		sourceTypeRadio.SetSelected("Папка")
+	}
+
+	selectSourceBtn := widget.NewButton("Выбрать источник", func() {
+		if sourceType == "file" {
+			dialog.ShowFileOpen(func(f fyne.URIReadCloser, err error) {
+				if err != nil || f == nil {
+					return
+				}
+				sourcePath = f.URI().Path()
+				sourceLabel.SetText(sourcePath)
+			}, w)
+		} else {
+			dialog.ShowFolderOpen(func(f fyne.ListableURI, err error) {
+				if err != nil || f == nil {
+					return
+				}
+				sourcePath = f.Path()
+				sourceLabel.SetText(sourcePath)
+			}, w)
+		}
+	})
+
+	periodSelect := widget.NewSelect(
+		[]string{"Каждый час", "Каждый день", "Каждую неделю", "Каждый месяц"},
+		nil,
+	)
+	minuteSelect := widget.NewSelect(genRange(0, 59), nil)
+	hourSelect := widget.NewSelect(genRange(0, 23), nil)
+	weekdaySelect := widget.NewSelect([]string{"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"}, nil)
+	dayOfMonthSelect := widget.NewSelect(genRange(1, 31), nil)
+
+	scheduleBox := container.NewVBox()
+
+	service.ParseCronToUI(task.Schedule,
+		periodSelect, minuteSelect, hourSelect, weekdaySelect, dayOfMonthSelect,
+		func() { scheduleBox.Refresh() },
+	)
+
+	periodChanged := func(v string) {
+		scheduleBox.Objects = nil
+		switch v {
+		case "Каждый час":
+			scheduleBox.Add(widget.NewForm(widget.NewFormItem("Минута", minuteSelect)))
+		case "Каждый день":
+			scheduleBox.Add(widget.NewForm(
+				widget.NewFormItem("Час", hourSelect),
+				widget.NewFormItem("Минута", minuteSelect),
+			))
+		case "Каждую неделю":
+			scheduleBox.Add(widget.NewForm(
+				widget.NewFormItem("День недели", weekdaySelect),
+				widget.NewFormItem("Час", hourSelect),
+				widget.NewFormItem("Минута", minuteSelect),
+			))
+		case "Каждый месяц":
+			scheduleBox.Add(widget.NewForm(
+				widget.NewFormItem("Дата", dayOfMonthSelect),
+				widget.NewFormItem("Час", hourSelect),
+				widget.NewFormItem("Минута", minuteSelect),
+			))
+		}
+		scheduleBox.Refresh()
+	}
+
+	periodChanged(periodSelect.Selected)
+
+	periodSelect.OnChanged = periodChanged
+
+	saveBtn := widget.NewButton("Сохранить", func() {
+		if nameEntry.Text == "" || sourcePath == "" {
+			dialog.ShowInformation("Ошибка", "Заполните все поля", w)
+			return
+		}
+
+		cron, err := service.BuildCron(
+			periodSelect.Selected,
+			minuteSelect.Selected,
+			hourSelect.Selected,
+			weekdaySelect.Selected,
+			dayOfMonthSelect.Selected,
+		)
+		if err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+
+		task.Name = nameEntry.Text
+		task.SourcePath = sourcePath
+		task.SourceType = sourceType
+		task.Schedule = cron
+
+		if err := svc.TaskRepo.Update(task); err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+		onSave()
+		w.Canvas().Overlays().Top().Hide()
+	})
+
+	cancelBtn := widget.NewButton("Отмена", func() {
+		w.Canvas().Overlays().Top().Hide()
+	})
+
+	content := container.NewVBox(
+		widget.NewForm(widget.NewFormItem("Название", nameEntry)),
+		widget.NewSeparator(),
+		sourceTypeRadio,
+		sourceLabel,
+		selectSourceBtn,
+		widget.NewSeparator(),
+		widget.NewLabel("Расписание"),
+		periodSelect,
+		scheduleBox,
+		widget.NewSeparator(),
+		container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn),
+	)
+
+	d := dialog.NewCustom("Редактировать правило", "Закрыть", content, w)
+	d.Resize(fyne.NewSize(420, 520))
+	d.Show()
 }

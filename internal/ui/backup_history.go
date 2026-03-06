@@ -31,39 +31,43 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 			return len(items)
 		},
 		func() fyne.CanvasObject {
-			return container.NewVBox(
-				container.NewHBox(
-					widget.NewLabel("Задача"),
-					widget.NewSeparator(),
-					widget.NewLabel("Статус"),
-					widget.NewSeparator(),
-					widget.NewLabel("Размер"),
-				),
-				container.NewHBox(
+			errorText := widget.NewRichTextFromMarkdown("")
+			errorText.Wrapping = fyne.TextWrapWord
+
+			return container.NewGridWithColumns(
+				2,
+				container.NewVBox(
+					container.NewHBox(
+						widget.NewLabel("Задача"),
+						widget.NewSeparator(),
+						widget.NewLabel("Статус"),
+						widget.NewSeparator(),
+						widget.NewLabel("Размер"),
+					),
 					widget.NewLabel("Время"),
-					widget.NewLabel(""),
 				),
+				container.NewScroll(errorText),
 			)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			b := items[id]
 			c := obj.(*fyne.Container)
 
-			header := c.Objects[0].(*fyne.Container)
+			left := c.Objects[0].(*fyne.Container)
+			header := left.Objects[0].(*fyne.Container)
 			header.Objects[0].(*widget.Label).SetText(b.TaskName)
 			header.Objects[2].(*widget.Label).SetText(b.Status)
 			header.Objects[4].(*widget.Label).SetText(formatBytes(b.SizeBytes))
 
-			footer := c.Objects[1].(*fyne.Container)
-			footer.Objects[0].(*widget.Label).SetText(
+			left.Objects[1].(*widget.Label).SetText(
 				b.StartedAt.Format("02.01.2006 15:04"),
 			)
 
-			errorLabel := footer.Objects[1].(*widget.Label)
+			errorLabel := c.Objects[1].(*container.Scroll).Content.(*widget.RichText)
 			if b.ErrorMsg != nil && strings.TrimSpace(*b.ErrorMsg) != "" {
-				errorLabel.SetText("Ошибка: " + *b.ErrorMsg)
+				errorLabel.ParseMarkdown("**Ошибка:** " + *b.ErrorMsg)
 			} else {
-				errorLabel.SetText("")
+				errorLabel.ParseMarkdown("")
 			}
 		},
 	)

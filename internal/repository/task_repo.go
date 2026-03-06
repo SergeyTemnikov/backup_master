@@ -14,7 +14,6 @@ func NewTaskRepository(db *sql.DB) *TaskRepository {
 	return &TaskRepository{db: db}
 }
 
-// Все задачи
 func (r *TaskRepository) GetAll() ([]model.Task, error) {
 	rows, err := r.db.Query(`
 		SELECT id, name, source_path, source_type, schedule,  enabled, created_at
@@ -45,7 +44,6 @@ func (r *TaskRepository) GetAll() ([]model.Task, error) {
 	return tasks, nil
 }
 
-// Ближайшие задачи (MVP — просто включённые)
 func (r *TaskRepository) GetUpcoming(limit int) ([]model.Task, error) {
 	rows, err := r.db.Query(`
 		SELECT id, name, source_path, source_type schedule, enabled, created_at
@@ -78,7 +76,6 @@ func (r *TaskRepository) GetUpcoming(limit int) ([]model.Task, error) {
 	return tasks, nil
 }
 
-// Количество ближайших (используется для dashboard)
 func (r *TaskRepository) CountUpcoming(from, to time.Time) (int, error) {
 	row := r.db.QueryRow(`
 		SELECT COUNT(*) FROM tasks WHERE enabled = 1
@@ -88,7 +85,6 @@ func (r *TaskRepository) CountUpcoming(from, to time.Time) (int, error) {
 	return count, err
 }
 
-// Создание задачи
 func (r *TaskRepository) Create(task *model.Task) error {
 	_, err := r.db.Exec(`
 		INSERT INTO tasks (
@@ -111,13 +107,27 @@ func (r *TaskRepository) Create(task *model.Task) error {
 	return err
 }
 
-// Удаление задачи
+func (r *TaskRepository) Update(task *model.Task) error {
+	_, err := r.db.Exec(
+		`
+		UPDATE tasks 
+		SET name=?, source_path=?, source_type=?, schedule=?, enabled=? 
+		WHERE id=?`,
+		task.Name,
+		task.SourcePath,
+		task.SourceType,
+		task.Schedule,
+		task.Enabled,
+		task.ID,
+	)
+	return err
+}
+
 func (r *TaskRepository) Delete(taskID int64) error {
 	_, err := r.db.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
 	return err
 }
 
-// Включить / выключить
 func (r *TaskRepository) SetEnabled(taskID int64, enabled bool) error {
 	_, err := r.db.Exec(`
 		UPDATE tasks SET enabled = ? WHERE id = ?
@@ -125,7 +135,6 @@ func (r *TaskRepository) SetEnabled(taskID int64, enabled bool) error {
 	return err
 }
 
-// Только включённые задачи
 func (r *TaskRepository) GetEnabled() ([]model.Task, error) {
 	rows, err := r.db.Query(`
 		SELECT id, name, source_path, source_type, schedule, enabled, created_at

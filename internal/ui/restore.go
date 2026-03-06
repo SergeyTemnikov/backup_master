@@ -157,8 +157,6 @@ func NewRestore(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
 					var err error
 
-					backupPath := selected.TargetPath
-
 					if selected.SourceType == "file" {
 
 						err = svc.RunFileRestoreWithChecksum(
@@ -169,8 +167,8 @@ func NewRestore(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
 					} else {
 
-						err = svc.RunFolderRestore(
-							filepath.Dir(backupPath),
+						err = svc.RunFolderRestoreWithChecksum(
+							selected.ID,
 							targetDir,
 							overwriteCheck.Checked,
 						)

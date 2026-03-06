@@ -45,7 +45,12 @@ func (r *RestoreService) RestoreFile(
 	backupName := filepath.Base(backupPath)
 	originalName := restoreOriginalName(backupName)
 	dstPath := filepath.Join(targetDir, originalName)
-	tmpPath := dstPath + ".tmp"
+	tmpFile, err := os.CreateTemp(targetDir, originalName+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+
+	tmpPath := tmpFile.Name()
 
 	if _, err := os.Stat(dstPath); err == nil {
 		if !overwrite {
@@ -69,11 +74,6 @@ func (r *RestoreService) RestoreFile(
 		return err
 	}
 	defer src.Close()
-
-	tmpFile, err := os.Create(tmpPath)
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
 
 	if _, err := io.Copy(tmpFile, src); err != nil {
 		tmpFile.Close()
@@ -139,7 +139,12 @@ func (r *RestoreService) RestoreFileWithChecksum(
 
 	originalName := restoreOriginalName(filepath.Base(backupPath))
 	dstPath := filepath.Join(targetDir, originalName)
-	tmpPath := dstPath + ".tmp"
+	tmpFile, err := os.CreateTemp(targetDir, originalName+".*.tmp")
+	if err != nil {
+		return err
+	}
+
+	tmpPath := tmpFile.Name()
 
 	if _, err := os.Stat(dstPath); err == nil && !overwrite {
 		return fmt.Errorf("файл уже существует")
@@ -154,11 +159,6 @@ func (r *RestoreService) RestoreFileWithChecksum(
 		return err
 	}
 	defer src.Close()
-
-	tmpFile, err := os.Create(tmpPath)
-	if err != nil {
-		return err
-	}
 
 	defer func() {
 		tmpFile.Close()
@@ -256,6 +256,80 @@ func (r *RestoreService) RestoreFolder(
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		os.RemoveAll(tempPath)
 		return err
+	}
+
+	return nil
+}
+
+func (r *RestoreService) RestoreFolderWithChecksum(
+	backupDir string,
+	targetRoot string,
+	expectedChecksum string,
+	mode RestoreMode,
+) error {
+
+	if targetRoot == "" {
+		return fmt.Errorf("target root required")
+	}
+
+	info, err := os.Stat(backupDir)
+	if err != nil {
+		return err
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("backup is not a directory")
+	}
+
+	originalName := restoreOriginalFolderName(filepath.Base(backupDir))
+
+	finalPath := filepath.Join(targetRoot, originalName)
+
+	tempDir, err := os.MkdirTemp(targetRoot, originalName+".*.tmp")
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		os.RemoveAll(tempDir)
+	}()
+
+	if mode == RestoreToNewFolder {
+		if _, err := os.Stat(finalPath); err == nil {
+			return fmt.Errorf("folder already exists")
+		}
+	}
+
+	if err := os.MkdirAll(targetRoot, 0755); err != nil {
+		return err
+	}
+
+	err = copyDirWithOverwrite(backupDir, tempDir)
+	if err != nil {
+		return err
+	}
+
+	restoredChecksum, err := dirChecksum(tempDir)
+	if err != nil {
+		return err
+	}
+
+	if restoredChecksum != expectedChecksum {
+		return fmt.Errorf("restore verification failed: checksum mismatch")
+	}
+
+	if mode == RestoreOverwrite {
+		os.RemoveAll(finalPath)
+	}
+
+	if err := os.Rename(tempDir, finalPath); err != nil {
+		return err
+	}
+
+	dir, err := os.Open(targetRoot)
+	if err == nil {
+		dir.Sync()
+		dir.Close()
 	}
 
 	return nil
