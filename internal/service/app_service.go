@@ -10,9 +10,12 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"fyne.io/fyne/v2"
 )
 
 type AppService struct {
+	App          fyne.App
 	DB           *sql.DB
 	TaskRepo     *repository.TaskRepository
 	BackupRepo   *repository.BackupRepository
@@ -32,7 +35,7 @@ type AppService struct {
 	TaskStateChan chan model.TaskStateEvent
 }
 
-func NewAppService(dbPath string) (*AppService, error) {
+func NewAppService(app fyne.App, dbPath string) (*AppService, error) {
 	db, err := repository.OpenDB(dbPath)
 	if err != nil {
 		return nil, err
@@ -56,6 +59,7 @@ func NewAppService(dbPath string) (*AppService, error) {
 	}
 
 	svc := &AppService{
+		App:          app,
 		DB:           db,
 		TaskRepo:     repository.NewTaskRepository(db),
 		BackupRepo:   repository.NewBackupRepository(db),
@@ -77,7 +81,39 @@ func NewAppService(dbPath string) (*AppService, error) {
 }
 
 //////////////////////
-// РУЧНОЙ БЭКАП
+// Уведмоления
+//////////////////////
+
+func (s *AppService) StartNotificationListener() {
+	go func() {
+		for event := range s.TaskStateChan {
+
+			switch event.State {
+
+			case model.TaskSuccess:
+				s.App.SendNotification(&fyne.Notification{
+					Title:   "Backup Master",
+					Content: "Задача успешно завершена",
+				})
+
+			case model.TaskError:
+				s.App.SendNotification(&fyne.Notification{
+					Title:   "Backup Master",
+					Content: "Ошибка выполнения задачи",
+				})
+			}
+		}
+	}()
+}
+func (s *AppService) NotifyError(err error) {
+	s.App.SendNotification(&fyne.Notification{
+		Title:   "Ошибка Backup Master",
+		Content: err.Error(),
+	})
+}
+
+//////////////////////
+// Ручной бэкап
 //////////////////////
 
 func (s *AppService) RunManualBackup(srcFile, dstFolder string) error {
@@ -269,6 +305,8 @@ func (s *AppService) runTask(task model.Task) {
 }
 
 func (s *AppService) sendTaskError(taskID int64, err error) {
+	s.NotifyError(err)
+
 	select {
 	case s.Progress <- &model.BackupProgress{
 		TaskID:  taskID,
@@ -541,6 +579,6 @@ func (s *AppService) GetUsedBytes(rootPath string) (int64, error) {
 // Логи
 //////////////////////
 
-func (s *AppService) GetBackupHistory(limit int, statusFilter string, dateFilter *time.Time) ([]model.BackupWithTask, error) {
-	return s.BackupRepo.GetHistory(limit, statusFilter, dateFilter)
+func (s *AppService) GetBackupHistory(limit int, statusFilter string, dateFilter *time.Time, id *int64) ([]model.BackupWithTask, error) {
+	return s.BackupRepo.GetHistory(limit, statusFilter, dateFilter, id)
 }

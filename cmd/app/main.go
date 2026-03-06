@@ -9,8 +9,9 @@ import (
 )
 
 func main() {
+	a := app.New()
 	// Инициализация сервиса
-	svc, err := service.NewAppService("data/backup.db")
+	svc, err := service.NewAppService(a, "data/backup.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -21,7 +22,6 @@ func main() {
 	}
 
 	// UI
-	a := app.New()
 	ui.LoadUI(a, svc)
 	a.Run()
 }

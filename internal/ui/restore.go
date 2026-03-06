@@ -246,7 +246,7 @@ func NewRestore(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 }
 
 func refreshList(svc *service.AppService) error {
-	data, err := svc.GetBackupHistory(200, "OK", nil)
+	data, err := svc.GetBackupHistory(200, "OK", nil, nil)
 	if err != nil {
 		return err
 	}

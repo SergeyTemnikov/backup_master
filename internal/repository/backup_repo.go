@@ -178,7 +178,7 @@ func (r *BackupRepository) GetAll() ([]model.Backup, error) {
 	return backups, nil
 }
 
-func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter *time.Time) ([]model.BackupWithTask, error) {
+func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter *time.Time, id *int64) ([]model.BackupWithTask, error) {
 	query := `
 		SELECT
 			b.id,
@@ -208,6 +208,15 @@ func (r *BackupRepository) GetHistory(limit int, statusFilter string, dateFilter
 	if dateFilter != nil {
 		conditions = append(conditions, "DATE(b.started_at) = DATE(?)")
 		args = append(args, dateFilter.Format("2006-01-02"))
+	}
+
+	if id != nil {
+		if *id == -1 {
+			conditions = append(conditions, "task_name = 'Ручной бэкап'")
+		} else {
+			conditions = append(conditions, "b.task_id = ?")
+			args = append(args, *id)
+		}
 	}
 
 	if len(conditions) > 0 {

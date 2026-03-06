@@ -3,10 +3,13 @@ package ui
 import (
 	"backup_master/internal/model"
 	"backup_master/internal/service"
+	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -23,6 +26,9 @@ var listFilter string = all
 var list *widget.List
 var items []model.BackupWithTask
 var selectedDate *time.Time
+var selectedTaskID *int64
+var RED = color.RGBA{R: 255, G: 0, B: 0, A: 100}
+var GREEN = color.RGBA{R: 0, G: 255, B: 0, A: 100}
 
 func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
@@ -40,7 +46,7 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 					container.NewHBox(
 						widget.NewLabel("Задача"),
 						widget.NewSeparator(),
-						widget.NewLabel("Статус"),
+						canvas.NewText("Статус", RED),
 						widget.NewSeparator(),
 						widget.NewLabel("Размер"),
 					),
@@ -56,7 +62,17 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 			left := c.Objects[0].(*fyne.Container)
 			header := left.Objects[0].(*fyne.Container)
 			header.Objects[0].(*widget.Label).SetText(b.TaskName)
-			header.Objects[2].(*widget.Label).SetText(b.Status)
+
+			status := header.Objects[2].(*canvas.Text)
+			status.Text = b.Status
+			status.TextStyle = fyne.TextStyle{Bold: true}
+
+			if b.Status == "OK" {
+				status.Color = GREEN
+			} else {
+				status.Color = RED
+			}
+
 			header.Objects[4].(*widget.Label).SetText(formatBytes(b.SizeBytes))
 
 			left.Objects[1].(*widget.Label).SetText(
@@ -80,12 +96,51 @@ func NewBackupHistory(svc *service.AppService, w fyne.Window) fyne.CanvasObject 
 
 	startListUpdate(w, 3*time.Second, update)
 
+	exportBtn := widget.NewButton("Экспорт", func() {
+
+		save := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+
+			if writer == nil {
+				return
+			}
+
+			logs, err := svc.GetBackupHistory(1000, "", nil, nil)
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
+
+			for _, l := range logs {
+
+				line := fmt.Sprintf(
+					"%s | %s | %s | %s\n",
+					l.StartedAt.Format("2006-01-02 15:04"),
+					l.TaskName,
+					l.Status,
+					l.TargetPath,
+				)
+
+				writer.Write([]byte(line))
+			}
+
+			writer.Close()
+
+		}, w)
+
+		save.SetFileName("backup_logs.txt")
+
+		save.Show()
+
+	})
+
 	return container.NewBorder(
 		container.NewVBox(
 			Title("История резервных копий"),
 			container.NewHBox(
 				NewFilterPopUP(svc, w),
 				NewDateFilterButton(svc, w),
+				NewTaskFilter(svc, w),
+				exportBtn,
 			),
 		),
 		nil,
@@ -106,7 +161,7 @@ func refresh(svc *service.AppService) error {
 		dateFilter = selectedDate
 	}
 
-	data, err := svc.GetBackupHistory(200, filter, dateFilter)
+	data, err := svc.GetBackupHistory(200, filter, dateFilter, selectedTaskID)
 	if err != nil {
 		return err
 	}
@@ -196,4 +251,45 @@ func NewDateFilterButton(svc *service.AppService, w fyne.Window) fyne.CanvasObje
 	}
 
 	return dateBtn
+}
+
+func NewTaskFilter(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
+
+	tasks, err := svc.TaskRepo.GetAll()
+	if err != nil {
+		return widget.NewLabel("Ошибка загрузки задач")
+	}
+
+	var manualBackupId int64 = -1
+	optionsMap := map[string]*int64{"Все задачи": nil, "Ручной бэкап": &manualBackupId}
+	options := []string{"Все задачи", "Ручной бэкап"}
+
+	for _, t := range tasks {
+		options = append(options, t.Name)
+		optionsMap[t.Name] = &t.ID
+	}
+
+	selectTask := widget.NewSelect(options, nil)
+
+	selectTask.OnChanged = func(v string) {
+
+		if v == "Все задачи" {
+			selectedTaskID = nil
+		} else {
+			id := optionsMap[v]
+			selectedTaskID = id
+		}
+
+		err := refresh(svc)
+		if err != nil {
+			dialog.ShowError(err, w)
+		}
+	}
+
+	selectTask.Selected = "Все задачи"
+
+	return container.NewHBox(
+		widget.NewLabel("Задача: "),
+		selectTask,
+	)
 }

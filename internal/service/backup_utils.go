@@ -10,11 +10,18 @@ import (
 	"strconv"
 	"strings"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
 )
 
+func SendNotification(app fyne.App, title, message string) {
+	app.SendNotification(&fyne.Notification{
+		Title:   title,
+		Content: message,
+	})
+}
+
 func copyDir(src, dst string) error {
-	// Приводим пути к абсолютным и нормализуем их
 	srcAbs, err := filepath.Abs(src)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for source: %w", err)
@@ -24,29 +31,23 @@ func copyDir(src, dst string) error {
 		return fmt.Errorf("failed to get absolute path for destination: %w", err)
 	}
 
-	// Убедимся, что dst не является подкаталогом src
-	// Добавляем разделитель, чтобы избежать ложных совпадений (например, /data и /data2)
 	if strings.HasPrefix(dstAbs, srcAbs+string(filepath.Separator)) {
 		return fmt.Errorf("destination directory %q is inside source directory %q", dst, src)
 	}
 
-	// Если src и dst — один и тот же путь (после нормализации)
 	if srcAbs == dstAbs {
 		return fmt.Errorf("source and destination are the same directory: %q", src)
 	}
 
-	// Читаем содержимое исходной директории
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
 
-	// Создаём целевую директорию
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
 
-	// Копируем каждый элемент
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
