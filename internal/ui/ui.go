@@ -23,7 +23,7 @@ func LoadUI(app fyne.App, svc *service.AppService) {
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Главная", NewDashboard(svc, w)),
-		container.NewTabItem("Бэкап", NewBackup(svc, w)),
+		container.NewTabItem("Копии", NewBackup(svc, w)),
 		container.NewTabItem("Восстановление", NewRestore(svc, w)),
 		container.NewTabItem("История", NewBackupHistory(svc, w)),
 		settingsTab,

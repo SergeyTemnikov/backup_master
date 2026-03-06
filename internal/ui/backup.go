@@ -16,12 +16,12 @@ import (
 func NewBackup(svc *service.AppService, w fyne.Window) fyne.CanvasObject {
 
 	manualTab := container.NewTabItem(
-		"Ручной",
+		"Ручные копии",
 		newManualBackupTab(svc, w),
 	)
 
 	autoTab := container.NewTabItem(
-		"Автоматический",
+		"Автоматические копии",
 		newAutoBackupTab(svc, w),
 	)
 
@@ -94,7 +94,7 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 		if dst == "" {
 			dialog.ShowInformation(
 				"Ошибка",
-				"Не задана папка хранения бэкапов (настройки)",
+				"Не задана папка хранения копий (настройки)",
 				w,
 			)
 			return
@@ -132,7 +132,7 @@ func newManualBackupTab(svc *service.AppService, w fyne.Window) fyne.CanvasObjec
 
 	return container.NewVBox(
 		widget.NewLabelWithStyle(
-			"Ручной бэкап",
+			"Ручная копия",
 			fyne.TextAlignLeading,
 			fyne.TextStyle{Bold: true},
 		),
@@ -474,7 +474,7 @@ func showCreateTaskDialog(
 	)
 
 	d := dialog.NewCustom(
-		"Новое правило бэкапа",
+		"Новое правило копий",
 		"Закрыть",
 		content,
 		w,
