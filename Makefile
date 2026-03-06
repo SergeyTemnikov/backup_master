@@ -32,14 +32,6 @@ clean:
 # ========================
 rebuild: clean build
 
-fyne-reload:
-	sudo apt remove golang-go
-	sudo apt autoremove
-	sudo apt update
-	sudo apt install golang-go
-	go install fyne.io/fyne/v2/cmd/fyne@latest
-	go install github.com/fyne-io/fyne-cross@latest
-
 # ========================
 # ПРОВЕРКА
 # ========================
